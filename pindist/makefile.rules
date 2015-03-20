@@ -1,0 +1,2 @@
+TOOL_ROOTS    := pindist 
+TOOL_CXXFLAGS += -std=c++11
