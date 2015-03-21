@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <cassert>
+#include <algorithm>
 
 // Assertions and consistency check?
 #define DEBUG 1
@@ -13,6 +14,10 @@
 
 // uses INS_IsStackRead/Write: misleading with -fomit-frame-pointer
 #define IGNORE_STACK 1
+
+// collect addresses in chunk buffer before?
+#define MERGE_CHUNK 0
+#define CHUNKSIZE 4096
 
 // must be a power-of-two
 #define MEMBLOCKLEN 64
@@ -54,10 +59,9 @@ unsigned long stackAccesses;
 /* Handle Memory block access (aligned at multiple of MEMBLOCKLEN)       */
 /* ===================================================================== */
 
-void access(Addr a)
+void accessBlock(Addr a)
 {
   int bucket;
-
   auto it = addrMap.find(a);
   if (it == addrMap.end()) {
     // new memory block
@@ -166,6 +170,25 @@ void checkStack()
   assert( aCount1 == aCount2 );
 }
 
+#if MERGE_CHUNK
+void accessMerging(Addr a)
+{
+  static Addr mergeBuffer[CHUNKSIZE];
+  static int ptr = 0;
+
+  if (ptr < CHUNKSIZE) {
+    mergeBuffer[ptr++] = a;
+    return;
+  }
+  sort(mergeBuffer,mergeBuffer+CHUNKSIZE);
+  for(ptr=0; ptr<CHUNKSIZE; ptr++) {
+    accessBlock(mergeBuffer[ptr]);
+  }
+  ptr = 0;
+}
+#define accessBlock accessMerging
+#endif
+
 
 /* ===================================================================== */
 /* Direct Callbacks                                                      */
@@ -180,13 +203,13 @@ void memAccess(ADDRINT addr, UINT32 size)
   if (a1 == a2) {
     if (VERBOSE >1)
       fprintf(stderr," => %p\n", a1);
-    access(a1);
+    accessBlock(a1);
   }
   else {
     if (VERBOSE >1)
       fprintf(stderr," => CROSS %p/%p\n", a1, a2);
-    access(a1);
-    access(a2);
+    accessBlock(a1);
+    accessBlock(a2);
   }
 
   // consistency check
