@@ -20,12 +20,37 @@
 // 2: Huge amount of debug output, 1: checks, 0: silent
 #define RD_VERBOSE 0
 
-typedef struct
-{
-  Addr addr;
+// use minimal memory block element? Prohibits consistency checks
+#define MIN_BLOCKSTRUCT 0
+
+#if MIN_BLOCKSTRUCT
+class MemoryBlock {
+public:
+  MemoryBlock(Addr a) { bucket = 0; } // generated on first access
+  void print(char* b)
+    { sprintf(b, "block at bucket %d", bucket); }
+  void incACount() {}
+  unsigned long getACount() { return 1; }
+
   int bucket;
-  unsigned int aCount;
-} MemoryBlock;
+};
+#else
+class MemoryBlock {
+public:
+  MemoryBlock(Addr a)
+    { addr = a; bucket = 0; aCount = 1; } // generated on first access
+  void print(char* b)
+    { sprintf(b, "block %p, bucket %d, aCount %lu", addr, bucket, aCount); }
+  void incACount() { aCount++; }
+  unsigned long getACount() { return aCount; }
+
+  int bucket;
+
+private:
+  Addr addr;
+  unsigned long aCount;
+};
+#endif
 
 list<MemoryBlock> stack;
 
@@ -95,10 +120,12 @@ void RD_checkConsistency()
       assert( stackIt == buckets[b].marker );
     }
 
-    if (RD_VERBOSE>1)
-      fprintf(stderr,"   %5d: Block %p, Bucket %d, aCount %u\n",
-	      d, stackIt->addr, stackIt->bucket, stackIt->aCount);
-    aCount1 += stackIt->aCount;
+    if (RD_VERBOSE>1) {
+      static char b[100];
+      stackIt->print(b);
+      fprintf(stderr,"   %5d: %s\n", d, b);
+    }
+    aCount1 += stackIt->getACount();
     assert( stackIt->bucket == b );
   }
   assert( nextBucket = b+1 );
@@ -109,8 +136,12 @@ void RD_checkConsistency()
 	    b, buckets[b].aCount );
     fprintf(stderr,"   Total aCount: %u\n", aCount1);
   }
+#if MIN_BLOCKSTRUCT
+  assert( buckets[b].aCount == stack.size() );
+#else
   assert( buckets[b].aCount == stack.size() );
   assert( aCount1 == aCount2 );
+#endif
 }
 
 
@@ -128,7 +159,7 @@ void moveMarkers(int topBucket)
 void handleNewBlock(Addr a)
 {
   // new memory block
-  stack.push_front( {a,0,1} );
+  stack.push_front( MemoryBlock(a) );
   addrMap[a] = stack.begin();
 
   if (RD_VERBOSE >1)
@@ -160,20 +191,14 @@ void moveBlockToTop(Addr a, list<MemoryBlock>::iterator blockIt, int bucket)
   // there could be a marker on blockIt, which would go wrong
   moveMarkers(bucket);
 
-#if 1
   // move element pointed to by blockIt to beginning of list
   stack.splice(stack.begin(), stack, blockIt);
+  blockIt->incACount();
   blockIt->bucket = 0;
-  blockIt->aCount++;
-#else
-  unsigned int aCount = blockIt->aCount +1;
-  stack.erase(blockIt);
-  stack.push_front( {a,0,aCount} );
-  addrMap[a] = stack.begin();
-#endif
+
   if (RD_VERBOSE >1)
-    fprintf(stderr," MOVED %p, Bucket %d, aCount %u\n",
-	    a, bucket, blockIt->aCount);
+    fprintf(stderr," MOVED %p from bucket %d to top (aCount %lu)\n",
+	    a, bucket, blockIt->getACount());
 }
 
 
@@ -196,10 +221,10 @@ void RD_accessBlock(Addr a)
       moveBlockToTop(a, blockIt, bucket);
     }
     else {
-      blockIt->aCount++;
+      blockIt->incACount();
       if (RD_VERBOSE >1)
-	fprintf(stderr," TOP %p accessed, Bucket %d, aCount %u\n",
-		a, bucket, blockIt->aCount);
+	fprintf(stderr," TOP %p accessed, bucket %d, aCount %lu\n",
+		a, bucket, blockIt->getACount());
     }
   }
 
