@@ -68,6 +68,53 @@ void RD_addBucket(unsigned int min)
   buckets.insert( buckets.end()-1, Bucket(min) );
 }
 
+
+// do an internal consistency check
+void RD_checkConsistency()
+{
+  unsigned int aCount1, aCount2;
+  unsigned int d = 0;
+  int b = 0;
+  aCount1 = 0;
+  aCount2 = buckets[0].aCount;
+
+  if (RD_VERBOSE>0) {
+    fprintf(stderr,"\nChecking... (stack size: %lu)\n", stack.size());
+    fprintf(stderr,"   START Bucket %d (min depth %u): aCount %lu\n",
+	    b, buckets[b].min, buckets[b].aCount );
+  }
+
+  list<MemoryBlock>::iterator stackIt;
+  for(stackIt = stack.begin(); stackIt != stack.end(); ++stackIt, ++d) {
+    if (d == buckets[b+1].min) {
+      b++;
+      aCount2 += buckets[b].aCount;
+      if (RD_VERBOSE>0)
+	fprintf(stderr,"   START Bucket %d (min depth %u): aCount %lu\n",
+		b, buckets[b].min, buckets[b].aCount );
+      assert( stackIt == buckets[b].marker );
+    }
+
+    if (RD_VERBOSE>1)
+      fprintf(stderr,"   %5d: Block %p, Bucket %d, aCount %u\n",
+	      d, stackIt->addr, stackIt->bucket, stackIt->aCount);
+    aCount1 += stackIt->aCount;
+    assert( stackIt->bucket == b );
+  }
+  assert( nextBucket = b+1 );
+  b = buckets.size()-1;
+  aCount2 += buckets[b].aCount;
+  if (RD_VERBOSE>0) {
+    fprintf(stderr,"   Last Bucket %d: aCount %lu\n",
+	    b, buckets[b].aCount );
+    fprintf(stderr,"   Total aCount: %u\n", aCount1);
+  }
+  assert( buckets[b].aCount == stack.size() );
+  assert( aCount1 == aCount2 );
+}
+
+
+
 void moveMarkers(int topBucket)
 {
   for(int b=1; b<=topBucket; b++) {
@@ -92,6 +139,7 @@ void handleNewBlock(Addr a)
 
   // does another bucket get active?
   if (addrMap.size() <= buckets[nextBucket].min) return;
+  if (buckets[nextBucket].min == 0) return; // last bucket reached
 
   if (RD_VERBOSE >0)
     fprintf(stderr," ACTIVATE bucket %d (next bucket minimum depth %d)\n",
@@ -109,17 +157,23 @@ void moveBlockToTop(Addr a, list<MemoryBlock>::iterator blockIt, int bucket)
 {
   // move markers of active buckets within range 1 to <bucket>.
   // we need to do this before moving blockIt to top, as
-  // there could be a marker on blockIt, which would get invalid
+  // there could be a marker on blockIt, which would go wrong
   moveMarkers(bucket);
 
+#if 1
+  // move element pointed to by blockIt to beginning of list
+  stack.splice(stack.begin(), stack, blockIt);
+  blockIt->bucket = 0;
+  blockIt->aCount++;
+#else
   unsigned int aCount = blockIt->aCount +1;
   stack.erase(blockIt);
   stack.push_front( {a,0,aCount} );
   addrMap[a] = stack.begin();
-
+#endif
   if (RD_VERBOSE >1)
     fprintf(stderr," MOVED %p, Bucket %d, aCount %u\n",
-	    a, bucket, aCount);
+	    a, bucket, blockIt->aCount);
 }
 
 
@@ -150,50 +204,16 @@ void RD_accessBlock(Addr a)
   }
 
   buckets[bucket].aCount++;
-}
 
-// do an internal consistency check
-void RD_checkConsistency()
-{
-  unsigned int aCount1, aCount2;
-  unsigned int d = 0;
-  int b = 0;
-  aCount1 = 0;
-  aCount2 = buckets[0].aCount;
-
-  if (RD_VERBOSE>0) {
-    fprintf(stderr,"\nChecking... (stack size: %lu)\n", stack.size());
-    fprintf(stderr,"   START Bucket %d (min depth %u): aCount %lu\n",
-	    b, buckets[b].min, buckets[b].aCount );
-  }
-
-  list<MemoryBlock>::iterator stackIt;
-  for(stackIt = stack.begin(); stackIt != stack.end(); ++stackIt, ++d) {
-    if (d == buckets[b+1].min) {
-      b++;
-      aCount2 += buckets[b].aCount;
-      if (RD_VERBOSE>0)
-	fprintf(stderr,"   START Bucket %d (min depth %u): aCount %lu\n",
-		b, buckets[b].min, buckets[b].aCount );
-      assert( stackIt == buckets[b].marker );      
+  if (RD_DEBUG) {
+    // run consistency check every 1 million invocations
+    static int checkCount = 0;
+    checkCount++;
+    if (checkCount > 1000000) {
+      RD_checkConsistency();
+      checkCount = 0;
     }
-
-    if (RD_VERBOSE>1)
-      fprintf(stderr,"   %5d: Block %p, Bucket %d, aCount %u\n",
-	      d, stackIt->addr, stackIt->bucket, stackIt->aCount);
-    aCount1 += stackIt->aCount;
-    assert( stackIt->bucket == b );
   }
-  assert( nextBucket = b+1 );
-  b = buckets.size()-1;
-  aCount2 += buckets[b].aCount;
-  if (RD_VERBOSE>0) {
-    fprintf(stderr,"   Last Bucket %d: aCount %lu\n",
-	    b, buckets[b].aCount );
-    fprintf(stderr,"   Total aCount: %u\n", aCount1);
-  }
-  assert( buckets[b].aCount == stack.size() );
-  assert( aCount1 == aCount2 );
 }
 
 

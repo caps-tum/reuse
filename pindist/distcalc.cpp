@@ -31,7 +31,7 @@ int main()
 
   // add buckets [0-1023], [1K - 2K-1], ... [1G - ]
   RD_init(1024 / MEMBLOCKLEN);
-  for(int i=2048; i< 128*1024*1024; i*=2)
+  for(int i=2048; i< 1024*1024*1024; i*=2)
     RD_addBucket(i / MEMBLOCKLEN);
 
   count = 0;

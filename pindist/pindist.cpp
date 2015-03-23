@@ -60,8 +60,6 @@ void accessMerging(Addr a)
 
 void memAccess(ADDRINT addr, UINT32 size)
 {
-  static int checkCount = 0;
-
   Addr a1 = (void*) (addr & ~(MEMBLOCKLEN-1));
   Addr a2 = (void*) ((addr+size-1) & ~(MEMBLOCKLEN-1));
   if (a1 == a2) {
@@ -74,17 +72,6 @@ void memAccess(ADDRINT addr, UINT32 size)
       fprintf(stderr," => CROSS %p/%p\n", a1, a2);
     RD_accessBlock(a1);
     RD_accessBlock(a2);
-  }
-
-  // consistency check
-  if (DEBUG) {
-    checkCount++;
-    if (checkCount > 100000) {
-      RD_checkConsistency();
-      if (VERBOSE >0)
-	fprintf(stderr,"   Ignored stack accesses: %lu\n\n", stackAccesses);
-      checkCount = 0;
-    }
   }
 }
 
@@ -182,7 +169,7 @@ int main (int argc, char *argv[])
 
   // add buckets [0-1023], [1K - 2K-1], ... [1G - ]
   RD_init(1024 / MEMBLOCKLEN);
-  for(int i=2048; i< 128*1024*1024; i*=2)
+  for(int i=2048; i< 1024*1024*1024; i*=2)
     RD_addBucket(i / MEMBLOCKLEN);
 
   stackAccesses = 0;
