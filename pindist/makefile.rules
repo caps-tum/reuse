@@ -1,2 +1,2 @@
-TOOL_ROOTS    := pindist
+TOOL_ROOTS    := pindist pintrace
 TOOL_CXXFLAGS += -std=c++11
