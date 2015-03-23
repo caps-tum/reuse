@@ -68,6 +68,61 @@ void RD_addBucket(unsigned int min)
   buckets.insert( buckets.end()-1, Bucket(min) );
 }
 
+void moveMarkers(int topBucket)
+{
+  for(int b=1; b<=topBucket; b++) {
+    --buckets[b].marker;
+    (buckets[b].marker)->bucket++;
+    if (RD_DEBUG)
+      assert( (buckets[b].marker)->bucket == b );
+  }
+}
+
+void handleNewBlock(Addr a)
+{
+  // new memory block
+  stack.push_front( {a,0,1} );
+  addrMap[a] = stack.begin();
+
+  if (RD_VERBOSE >1)
+    fprintf(stderr," NEW block %p, now %lu blocks seen\n", a, stack.size());
+
+  // move all markers of active buckets
+  moveMarkers(nextBucket-1);
+
+  // does another bucket get active?
+  if (addrMap.size() <= buckets[nextBucket].min) return;
+
+  if (RD_VERBOSE >0)
+    fprintf(stderr," ACTIVATE bucket %d (next bucket minimum depth %d)\n",
+	    nextBucket, buckets[nextBucket+1].min);
+
+  --buckets[nextBucket].marker; // set marker to last entry
+  (buckets[nextBucket].marker)->bucket++;
+  if (RD_DEBUG)
+    assert( (buckets[nextBucket].marker)->bucket == nextBucket );
+
+  nextBucket++;
+}
+
+void moveBlockToTop(Addr a, list<MemoryBlock>::iterator blockIt, int bucket)
+{
+  // move markers of active buckets within range 1 to <bucket>.
+  // we need to do this before moving blockIt to top, as
+  // there could be a marker on blockIt, which would get invalid
+  moveMarkers(bucket);
+
+  unsigned int aCount = blockIt->aCount +1;
+  stack.erase(blockIt);
+  stack.push_front( {a,0,aCount} );
+  addrMap[a] = stack.begin();
+
+  if (RD_VERBOSE >1)
+    fprintf(stderr," MOVED %p, Bucket %d, aCount %u\n",
+	    a, bucket, aCount);
+}
+
+
 // run stack simulation
 // To use a specific block size, ensure that <a> is aligned
 void RD_accessBlock(Addr a)
@@ -75,56 +130,16 @@ void RD_accessBlock(Addr a)
   int bucket;
   auto it = addrMap.find(a);
   if (it == addrMap.end()) {
-    // new memory block
-    stack.push_front( {a,0,1} );
-    addrMap[a] = stack.begin();
+    handleNewBlock(a);
     bucket = buckets.size()-1; // "infinite" distance, put in last bucket
-
-    if (RD_VERBOSE >1)
-      fprintf(stderr," NEW N block %p, Bucket %d\n", a, bucket);
-
-    // move all markers of active buckets
-    for(int b=1; b<nextBucket; b++) {
-      --buckets[b].marker;
-      (buckets[b].marker)->bucket++;
-      if (RD_DEBUG)
-	assert( (buckets[b].marker)->bucket == b );
-    }
-
-    // does another bucket get active?
-    if (stack.size() > buckets[nextBucket].min) {
-      if (RD_VERBOSE >0)
-	fprintf(stderr," MARK bucket %d (next bucket minimum depth %d)\n",
-		nextBucket, buckets[nextBucket+1].min);
-      --buckets[nextBucket].marker; // set marker to last entry
-      (buckets[nextBucket].marker)->bucket++;
-      if (RD_DEBUG)
-	assert( (buckets[nextBucket].marker)->bucket == nextBucket );
-      nextBucket++;
-    }
   }
   else {
     // memory block already seen
     auto blockIt = it->second;
     bucket = blockIt->bucket;
-    if (blockIt != stack.begin()) {
-      // move markers of active buckets within range 1 to <bucket>.
-      // we need to do this before moving blockIt to top, as
-      // there could be a marker on blockIt, which would get invalid
-      for(int b=1; b<=bucket; b++) {
-	--buckets[b].marker;
-	(buckets[b].marker)->bucket++;
-	if (RD_DEBUG)
-	  assert( (buckets[b].marker)->bucket == b );
-      }
 
-      unsigned int aCount = blockIt->aCount +1;
-      stack.erase(blockIt);
-      stack.push_front( {a,0,aCount} );
-      addrMap[a] = stack.begin();
-      if (RD_VERBOSE >1)
-	fprintf(stderr," MOVED %p, Bucket %d, aCount %u\n",
-		a, bucket, aCount);
+    if (blockIt != stack.begin()) {
+      moveBlockToTop(a, blockIt, bucket);
     }
     else {
       blockIt->aCount++;
