@@ -1,0 +1,28 @@
+Pin Tool for Reuse Distance Calculation
+=======================================
+
+
+BUILD
+
+Install Pin into your home, and set PIN_ROOT and PATH
+to be able to run the "pin" binary.
+
+Run "make" in pindist/
+
+
+RUN
+
+in "pindist/": pin -t obj-intel64/pindist.so -- <cmd>
+
+
+
+
+
+
+TODO
+----
+
+* relation to source
+* multiple threads
+* multiple processes
+* detect regular access pattern for reduced trace

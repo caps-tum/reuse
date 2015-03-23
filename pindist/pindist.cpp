@@ -145,10 +145,11 @@ VOID Exit(INT32 code, VOID *v)
 
   fprintf(stderr,
 	  "Statistics:\n"
-	  "  memory blocks accessed: %lu\n"
+	  "  memory blocks accessed: %lu (%3.3f MB)\n"
 	  "  number of accesses:     %lu\n"
 	  "  ignored stack accesses: %lu\n",
-	  stack_size, aCount, stackAccesses);
+	  stack_size, ((double)stack_size * MEMBLOCKLEN)/1000000.0,
+	  aCount, stackAccesses);
 }
 
 /* ===================================================================== */
