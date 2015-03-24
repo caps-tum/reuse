@@ -7,9 +7,11 @@
 
 
 #include "pin.H"
+
 #include <stdio.h>
 #include <cassert>
 #include <cstring>
+#include <unistd.h>
 
 #include "dist.cpp"
 
@@ -138,7 +140,7 @@ VOID Exit(INT32 code, VOID *v)
   char bar[] = "##############################################################";
   int barCount = strlen(bar), barSize;
 
-  fprintf(stderr, "Histogram:\n");
+  fprintf(stderr, "Histogram (PID %d):\n", getpid());
 
   maxCount = 0;
   b = 1;
