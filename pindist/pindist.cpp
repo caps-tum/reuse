@@ -109,6 +109,7 @@ VOID Instruction(INS ins, VOID* v)
 
   UINT32 memOperands = INS_MemoryOperandCount(ins);
   for (UINT32 memOp = 0; memOp < memOperands; memOp++) {
+    if (INS_IsVgather(ins)) continue; // hack to ignore vgather for now
     if (INS_MemoryOperandIsRead(ins, memOp))
       INS_InsertPredicatedCall( ins, IPOINT_BEFORE, (AFUNPTR)memRead,
 				IARG_MEMORYOP_EA, memOp,
