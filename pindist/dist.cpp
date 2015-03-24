@@ -88,6 +88,8 @@ void RD_init(int min1)
 // only specification of minimal distance required
 void RD_addBucket(unsigned int min)
 {
+  //fprintf(stderr, "Add bucket with dist %d (last dist: %d)\n",
+  //   min, buckets[buckets.size()-2].min);
   assert(buckets.size() > 2);
   assert(buckets[buckets.size()-2].min < min);
   buckets.insert( buckets.end()-1, Bucket(min) );

@@ -1,2 +1,11 @@
 TOOL_ROOTS    := pindist pintrace
 TOOL_CXXFLAGS += -std=c++11
+
+#CXXFLAGS=-O3 -fomit-frame-pointer -fno-strict-aliasing -std=c++11
+CXXFLAGS=-g -O2 -std=c++11
+distcalc: distcalc.cpp
+	$(CXX) $(CXXFLAGS) distcalc.cpp -o distcalc
+
+installwrapper:
+	echo "time \$$PIN_ROOT/pin -t $$PWD/obj-intel64/pindist.so \$$*" > pindist
+	cp pindist ~/bin/ && chmod 755 ~/bin/pindist

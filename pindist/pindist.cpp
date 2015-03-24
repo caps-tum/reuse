@@ -9,6 +9,7 @@
 #include "pin.H"
 #include <stdio.h>
 #include <cassert>
+#include <cstring>
 
 #include "dist.cpp"
 
@@ -131,15 +132,36 @@ VOID Exit(INT32 code, VOID *v)
 {
   int b, bNext;
   unsigned int min;
-  unsigned long aCount;
+  unsigned long aCount, maxCount;
   unsigned long stack_size;
+  char bar[] = "##############################################################";
+  int barCount = strlen(bar), barSize;
 
-  b = 0;
+  fprintf(stderr, "Histogram:\n");
+
+  maxCount = 0;
+  b = 1;
   do {
     bNext = RD_get_hist(b, min, aCount);
-    fprintf(stderr, "B [%d ...] %lu\n", min * MEMBLOCKLEN, aCount);
+    if (aCount > maxCount) maxCount = aCount;
     b = bNext;
   } while(b!=0);
+
+  bNext = RD_get_hist(0, min, aCount);
+  fprintf(stderr, "[%8.3f MB .. ] %8lu ==>\n",
+      (double)(min * MEMBLOCKLEN)/1000000.0, aCount);
+  b = bNext;
+  do {
+    bNext = RD_get_hist(b, min, aCount);
+    barSize = (int)((double)aCount/maxCount*barCount);
+    if (barSize > barCount) barSize = barCount;
+    fprintf(stderr, "[%8.3f MB .. ] %8lu %s\n",
+      (double)(min * MEMBLOCKLEN)/1000000.0,
+      aCount,
+      bar + barCount - barSize);
+    b = bNext;
+  } while(b!=0);
+
 
   RD_stat(stack_size, aCount);
 
@@ -156,6 +178,12 @@ VOID Exit(INT32 code, VOID *v)
 /* Usage/Main Function of the Pin Tool                                   */
 /* ===================================================================== */
 
+KNOB<int> KnobMinDist(KNOB_MODE_WRITEONCE, "pintool",
+    "m", "4096", "minimum bucket distance");
+KNOB<int> KnobDoubleSteps(KNOB_MODE_WRITEONCE, "pintool",
+    "s", "1", "number of buckets for doubling distance");
+
+
 INT32 Usage()
 {
   PIN_ERROR( "PinDist: Get the Stack Reuse Distance Histogram\n" 
@@ -169,9 +197,12 @@ int main (int argc, char *argv[])
   if (PIN_Init(argc, argv)) return Usage();
 
   // add buckets [0-1023], [1K - 2K-1], ... [1G - ]
-  RD_init(1024 / MEMBLOCKLEN);
-  for(int i=2048; i< 1024*1024*1024; i*=2)
-    RD_addBucket(i / MEMBLOCKLEN);
+  double d = KnobMinDist.Value();
+  int s = KnobDoubleSteps.Value();
+  double f = pow(2, 1.0/s);
+  RD_init((int)(d / MEMBLOCKLEN));
+  for(d*=f; d< 1024*1024*1024; d*=f)
+    RD_addBucket((int)(d / MEMBLOCKLEN));
 
   stackAccesses = 0;
 
