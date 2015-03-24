@@ -25,4 +25,5 @@ TODO
 * relation to source
 * multiple threads
 * multiple processes
+* add prefetch
 * detect regular access pattern for reduced trace
