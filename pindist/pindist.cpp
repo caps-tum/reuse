@@ -34,6 +34,17 @@
 unsigned long stackAccesses;
 
 /* ===================================================================== */
+/* Command line options                                                  */
+/* ===================================================================== */
+
+KNOB<int> KnobMinDist(KNOB_MODE_WRITEONCE, "pintool",
+    "m", "4096", "minimum bucket distance");
+KNOB<int> KnobDoubleSteps(KNOB_MODE_WRITEONCE, "pintool",
+    "s", "1", "number of buckets for doubling distance");
+KNOB<bool> KnobPIDPrefix(KNOB_MODE_WRITEONCE, "pintool",
+    "p", "0", "prepend output by --PID--");
+
+/* ===================================================================== */
 /* Handle Memory block access (aligned at multiple of MEMBLOCKLEN)       */
 /* ===================================================================== */
 
@@ -130,6 +141,23 @@ VOID Instruction(INS ins, VOID* v)
 /* Output results at exit                                                */
 /* ===================================================================== */
 
+char* format(unsigned long aCount, unsigned long maxCount)
+{
+  static char out[20];
+
+  if (maxCount > 999999999)
+    sprintf(out, "%7.3f G", (double) aCount / 1000000000.0);
+  else if (maxCount > 999999)
+    sprintf(out, "%7.3f M", (double) aCount / 1000000.0);
+  else if (aCount > 999)
+    sprintf(out, "%3d %3d  ",
+	    (int) aCount / 1000, (int)(aCount % 1000));
+  else
+    sprintf(out, "    %3d  ", (int) aCount);
+
+  return out;
+}
+
 VOID Exit(INT32 code, VOID *v)
 {
   int b, bNext;
@@ -138,8 +166,14 @@ VOID Exit(INT32 code, VOID *v)
   unsigned long stack_size;
   char bar[] = "##############################################################";
   int barCount = strlen(bar), barSize;
+  char pStr[20], bStr[20];
 
-  fprintf(stderr, "Histogram (PID %d):\n", getpid());
+  if (KnobPIDPrefix.Value())
+    sprintf(pStr, "--%5d-- ", getpid());
+  else
+    pStr[0] = 0;
+
+  fprintf(stderr, "%sHistogram:\n", pStr);
 
   maxCount = 0;
   b = 1;
@@ -150,17 +184,23 @@ VOID Exit(INT32 code, VOID *v)
   } while(b!=0);
 
   bNext = RD_get_hist(0, min, aCount);
-  fprintf(stderr, "[%8.3f MB .. ] %8lu ==>\n",
-      (double)(min * MEMBLOCKLEN)/1000000.0, aCount);
+  fprintf(stderr, "%s[%8.3f MB ..] %s ==>\n",
+	  pStr, (double)(min * MEMBLOCKLEN)/1000000.0,
+	  format(aCount,aCount));
   b = bNext;
   do {
     bNext = RD_get_hist(b, min, aCount);
     barSize = (int)((double)aCount/maxCount*barCount);
     if (barSize > barCount) barSize = barCount;
-    fprintf(stderr, "[%8.3f MB .. ] %8lu %s\n",
-      (double)(min * MEMBLOCKLEN)/1000000.0,
-      aCount,
-      bar + barCount - barSize);
+    if (min>0)
+      sprintf(bStr, "%8.3f MB ..",
+	      (double)(min * MEMBLOCKLEN) / 1024.0 / 1024.0);
+    else
+      sprintf(bStr, "   inf/cold   ");
+    fprintf(stderr, "%s[%s] %s %s\n",
+	    pStr, bStr,
+	    format(aCount, maxCount),
+	    bar + barCount - barSize);
     b = bNext;
   } while(b!=0);
 
@@ -168,22 +208,18 @@ VOID Exit(INT32 code, VOID *v)
   RD_stat(stack_size, aCount);
 
   fprintf(stderr,
-	  "Statistics:\n"
-	  "  memory blocks accessed: %lu (%3.3f MB)\n"
-	  "  number of accesses:     %lu\n"
-	  "  ignored stack accesses: %lu\n",
-	  stack_size, ((double)stack_size * MEMBLOCKLEN)/1000000.0,
-	  aCount, stackAccesses);
+	  "%sStatistics:\n"
+	  "%s  memory blocks accessed: %lu (%3.3f MB)\n"
+	  "%s  number of accesses:     %lu\n"
+	  "%s  ignored stack accesses: %lu\n",
+	  pStr, pStr, stack_size, ((double)stack_size * MEMBLOCKLEN)/1000000.0,
+	  pStr, aCount,
+	  pStr, stackAccesses);
 }
 
 /* ===================================================================== */
 /* Usage/Main Function of the Pin Tool                                   */
 /* ===================================================================== */
-
-KNOB<int> KnobMinDist(KNOB_MODE_WRITEONCE, "pintool",
-    "m", "4096", "minimum bucket distance");
-KNOB<int> KnobDoubleSteps(KNOB_MODE_WRITEONCE, "pintool",
-    "s", "1", "number of buckets for doubling distance");
 
 
 INT32 Usage()
