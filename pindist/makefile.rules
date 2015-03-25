@@ -6,6 +6,9 @@ CXXFLAGS=-g -O2 -std=c++11
 distcalc: distcalc.cpp
 	$(CXX) $(CXXFLAGS) distcalc.cpp -o distcalc
 
+cleandir:
+	rm -f pindist pintrace distcalc *~
+
 install: install_pindist_wrapper install_pintrace_wrapper
 
 install_pindist_wrapper:
