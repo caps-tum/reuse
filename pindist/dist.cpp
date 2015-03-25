@@ -28,6 +28,41 @@ using namespace std;
 
 
 //-------------------------------------------------------------------------
+// Stack structure with MemoryBlock as element
+
+#if MIN_BLOCKSTRUCT
+class MemoryBlock {
+public:
+  MemoryBlock(Addr a) { bucket = 0; } // generated on first access
+  void print(char* b)
+    { sprintf(b, "block at bucket %d", bucket); }
+  void incACount() {}
+  unsigned long getACount() { return 1; }
+
+  int bucket;
+};
+#else
+class MemoryBlock {
+public:
+  MemoryBlock(Addr a)
+    { addr = a; bucket = 0; aCount = 1; } // generated on first access
+  void print(char* b)
+    { sprintf(b, "block %p, bucket %d, aCount %lu", addr, bucket, aCount); }
+  void incACount() { aCount++; }
+  unsigned long getACount() { return aCount; }
+
+  int bucket;
+
+private:
+  Addr addr;
+  unsigned long aCount;
+};
+#endif
+
+list<MemoryBlock> stack;
+
+
+//-------------------------------------------------------------------------
 // Specialization of unordered_map to use masking for bucket calculation
 struct _Mod_myrange_hashing
 {
@@ -88,38 +123,6 @@ public:
 //-------------------------------------------------------------------------
 
 
-
-#if MIN_BLOCKSTRUCT
-class MemoryBlock {
-public:
-  MemoryBlock(Addr a) { bucket = 0; } // generated on first access
-  void print(char* b)
-    { sprintf(b, "block at bucket %d", bucket); }
-  void incACount() {}
-  unsigned long getACount() { return 1; }
-
-  int bucket;
-};
-#else
-class MemoryBlock {
-public:
-  MemoryBlock(Addr a)
-    { addr = a; bucket = 0; aCount = 1; } // generated on first access
-  void print(char* b)
-    { sprintf(b, "block %p, bucket %d, aCount %lu", addr, bucket, aCount); }
-  void incACount() { aCount++; }
-  unsigned long getACount() { return aCount; }
-
-  int bucket;
-
-private:
-  Addr addr;
-  unsigned long aCount;
-};
-#endif
-
-list<MemoryBlock> stack;
-
 class Bucket {
 public:
   Bucket(int m)  {
@@ -133,10 +136,8 @@ public:
 };
 
 
-
 vector<Bucket> buckets;
 int nextBucket; // when stack is growing, we may enter this bucket
-
 
 unordered_map<Addr,list<MemoryBlock>::iterator> addrMap;
 
