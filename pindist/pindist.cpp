@@ -24,7 +24,7 @@
 // uses INS_IsStackRead/Write: misleading with -fomit-frame-pointer
 #define IGNORE_STACK 1
 
-// collect addresses in chunk buffer before?
+// collect addresses in chunk buffer before? (always worse)
 #define MERGE_CHUNK 0
 #define CHUNKSIZE 4096
 
