@@ -18,21 +18,71 @@ Addr buffer[CHUNKSIZE];
 
 FILE* trace;
 
-int main()
+void usage(char* argv0)
 {
+  fprintf(stderr,
+	  "Stack Distance Calculation from Trace\n"
+	  "Usage: %s [Options] [<trace>]\n\n"
+	  "Parameters:\n"
+	  "  <trace>      trace file (def. 'trace.out')\n"
+	  "Options:\n"
+	  "  -h           show this help\n"
+	  "  -m <min>     minimal distance\n"
+	  "  -s <steps>   number of buckets per doubled distance\n"
+	  "  -v           be verbose\n", argv0);
+  exit(1);
+}
+
+int main(int argc, char* argv[])
+{
+  int arg;
   int read, ptr;
   unsigned long count;
 
-  trace = fopen("trace.out", "r");
+  int verbose = 0;
+  int minDist = 0;
+  int doublingSteps = 0;
+  const char* tracefile = 0;
+  
+  for(arg=1; arg<argc; arg++) {
+    if (argv[arg][0] == '-') {
+      if (argv[arg][1] == 'h') usage(argv[0]);
+      if (argv[arg][1] == 'v') { verbose++; continue; }
+      if ((argv[arg][1] == 'm') && (arg+1<argc)) {
+	minDist = atoi(argv[arg+1]);
+	arg++;
+	continue;
+      }
+      if ((argv[arg][1] == 's') && (arg+1<argc)) {
+	doublingSteps = atoi(argv[arg+1]);
+	arg++;
+	continue;
+      }
+
+      usage(argv[0]);
+    }
+    tracefile = argv[arg];
+  }
+
+  if (minDist == 0) minDist = 4096;
+  if (doublingSteps == 0) doublingSteps = 1;
+  if (!trace) tracefile = "trace.out";
+
+  if (verbose)
+    fprintf(stderr, "Use trace '%s', min %d, steps %d\n",
+	    tracefile, minDist, doublingSteps);
+
+  trace = fopen(tracefile, "r");
   if (trace == 0) {
-    fprintf(stderr, "Cannot open trace.out\n");
+    fprintf(stderr, "Cannot open '%s'\n", tracefile);
     exit(1);
   }
 
-  // add buckets [0-1023], [1K - 2K-1], ... [1G - ]
-  RD_init(1024 / MEMBLOCKLEN);
-  for(int i=2048; i< 1024*1024*1024; i*=2)
-    RD_addBucket(i / MEMBLOCKLEN);
+  double d = minDist;
+  double f = pow(2, 1.0/doublingSteps);
+  RD_init((int)(d / MEMBLOCKLEN));
+  for(d*=f; d< 1024*1024*1024; d*=f)
+    RD_addBucket((int)(d / MEMBLOCKLEN));
 
   count = 0;
   while(1) {

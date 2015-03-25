@@ -358,7 +358,7 @@ char* formatLong(unsigned long aCount, unsigned long maxCount)
   else if (maxCount > 999999)
     sprintf(out, "%7.3f M", (double) aCount / 1000000.0);
   else if (aCount > 999)
-    sprintf(out, "%3d %3d  ",
+    sprintf(out, "%3d %03d  ",
 	    (int) aCount / 1000, (int)(aCount % 1000));
   else
     sprintf(out, "    %3d  ", (int) aCount);
@@ -386,6 +386,7 @@ char* formatBar(unsigned long aCount, unsigned long maxCount, int len)
 void RD_printHistogram(FILE* out, const char* pStr, int blockSize)
 {
   int b, bNext;
+  int maxBucket, maxNonEmptyBucket;
   unsigned int min;
   unsigned long aCount, maxCount;
   unsigned long stack_size;
@@ -393,13 +394,22 @@ void RD_printHistogram(FILE* out, const char* pStr, int blockSize)
 
   fprintf(out, "%sHistogram:\n", pStr);
 
+  maxNonEmptyBucket = 1; // set to bucket with largest non-empty distance
   maxCount = 0;
   b = 1;
   do {
     bNext = RD_get_hist(b, min, aCount);
     if (aCount > maxCount) maxCount = aCount;
+    if ((min>0) && (aCount > 0)) maxNonEmptyBucket = b;
+    if (b>0) maxBucket = b;
     b = bNext;
   } while(b!=0);
+
+  if (maxNonEmptyBucket < maxBucket)
+    maxNonEmptyBucket++;
+
+  //  fprintf(out, "%sMaxBucket %d NonEmpty %d\n",
+  //          pStr, maxBucket, maxNonEmptyBucket);
 
   bNext = RD_get_hist(0, min, aCount);
   fprintf(out, "%s[%8.3f MB ..] %s ==>\n",
@@ -408,6 +418,10 @@ void RD_printHistogram(FILE* out, const char* pStr, int blockSize)
   b = bNext;
   do {
     bNext = RD_get_hist(b, min, aCount);
+    if ((b>maxNonEmptyBucket) && (aCount == 0)) {
+      b = bNext;
+      continue;
+    }
 
     if (min>0)
       sprintf(bStr, "%8.3f MB ..",
