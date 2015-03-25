@@ -44,26 +44,8 @@ int main()
   }
   fclose(trace);
 
-  int b, bNext;
-  unsigned int min;
-  unsigned long aCount;
-  unsigned long stack_size;
-
-  b = 0;
-  do {
-    bNext = RD_get_hist(b, min, aCount);
-    fprintf(stderr, "B [%d ...] %lu\n", min * MEMBLOCKLEN, aCount);
-    b = bNext;
-  } while(b!=0);
-
-  RD_stat(stack_size, aCount);
-
-  fprintf(stderr,
-	  "Statistics:\n"
-	  "  memory blocks accessed:  %lu\n"
-	  "  number of accesses:      %lu\n"
-	  "  entries read from trace: %lu\n",
-	  stack_size, aCount, count);
+  RD_printHistogram(stderr, "", MEMBLOCKLEN);
+  fprintf(stderr, "  entries read from trace: %lu\n", count);
 
   return 0;
 }

@@ -6,6 +6,12 @@ CXXFLAGS=-g -O2 -std=c++11
 distcalc: distcalc.cpp
 	$(CXX) $(CXXFLAGS) distcalc.cpp -o distcalc
 
-installwrapper:
+install: install_pindist_wrapper install_pintrace_wrapper
+
+install_pindist_wrapper:
 	echo "time \$$PIN_ROOT/pin -t $$PWD/obj-intel64/pindist.so \$$*" > pindist
 	cp pindist ~/bin/ && chmod 755 ~/bin/pindist
+
+install_pintrace_wrapper:
+	echo "time \$$PIN_ROOT/pin -t $$PWD/obj-intel64/pintrace.so \$$*" > pintrace
+	cp pintrace ~/bin/ && chmod 755 ~/bin/pintrace

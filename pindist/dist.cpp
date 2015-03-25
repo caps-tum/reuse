@@ -344,3 +344,90 @@ int RD_get_hist(unsigned int b,
   if (b == buckets.size()-1) return 0;
   return b+1;
 }
+
+
+// print nice ASCII histogram
+
+// helpers
+char* formatLong(unsigned long aCount, unsigned long maxCount)
+{
+  static char out[20];
+
+  if (maxCount > 999999999)
+    sprintf(out, "%7.3f G", (double) aCount / 1000000000.0);
+  else if (maxCount > 999999)
+    sprintf(out, "%7.3f M", (double) aCount / 1000000.0);
+  else if (aCount > 999)
+    sprintf(out, "%3d %3d  ",
+	    (int) aCount / 1000, (int)(aCount % 1000));
+  else
+    sprintf(out, "    %3d  ", (int) aCount);
+
+  return out;
+}
+
+char* formatBar(unsigned long aCount, unsigned long maxCount, int len)
+{
+  int i, size;
+  static char bar[110];
+
+  if (len>100) len=100;
+  for(i=0;i<len;i++)
+    bar[i] = '#';
+  bar[i] = 0;
+
+  size = (int)((double)aCount/maxCount*len);
+  if (size > len) size = len;
+  return bar + len - size;
+}
+
+// print histogram + statistics to <out>
+//  <pStr> prefix for every line
+void RD_printHistogram(FILE* out, const char* pStr, int blockSize)
+{
+  int b, bNext;
+  unsigned int min;
+  unsigned long aCount, maxCount;
+  unsigned long stack_size;
+  char bStr[20];
+
+  fprintf(out, "%sHistogram:\n", pStr);
+
+  maxCount = 0;
+  b = 1;
+  do {
+    bNext = RD_get_hist(b, min, aCount);
+    if (aCount > maxCount) maxCount = aCount;
+    b = bNext;
+  } while(b!=0);
+
+  bNext = RD_get_hist(0, min, aCount);
+  fprintf(out, "%s[%8.3f MB ..] %s ==>\n",
+	  pStr, (double)(min * blockSize)/1000000.0,
+	  formatLong(aCount,aCount));
+  b = bNext;
+  do {
+    bNext = RD_get_hist(b, min, aCount);
+
+    if (min>0)
+      sprintf(bStr, "%8.3f MB ..",
+	      (double)(min * blockSize) / 1024.0 / 1024.0);
+    else
+      sprintf(bStr, "   inf/cold   ");
+
+    fprintf(out, "%s[%s] %s %s\n", pStr, bStr,
+	    formatLong(aCount, maxCount),
+	    formatBar(aCount, maxCount, 60));
+    b = bNext;
+  } while(b!=0);
+
+  RD_stat(stack_size, aCount);
+
+  fprintf(out,
+	  "%sStatistics:\n"
+	  "%s  memory blocks accessed: %lu (%3.3f MB)\n"
+	  "%s  number of accesses:     %lu\n",
+	  pStr, pStr, stack_size,
+	  ((double)stack_size * blockSize)/1000000.0,
+	  pStr, aCount);
+}

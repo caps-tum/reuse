@@ -29,3 +29,7 @@ void RD_stat(unsigned long & stack_size, unsigned long & accessCount);
 // Returns next bucket or 0 if this was last
 int RD_get_hist(unsigned int bucket,
 		unsigned int & min, unsigned long & accessCount);
+
+// print nice ASCII histogram to <out>
+//  <pStr> is prefix for every line, distances scaled by <blockSize>
+void RD_printHistogram(FILE* out, const char* pStr, int blockSize);
