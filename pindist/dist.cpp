@@ -4,8 +4,10 @@
  * GPLv2+ (see COPYING)
  */
 
+
 #include "dist.h"
 
+#include <iostream>
 #include <stdio.h>
 #include <list>
 #include <vector>
@@ -13,6 +15,7 @@
 #include <cassert>
 #include <algorithm>
 
+using namespace std;
 
 // Assertions and consistency check?
 #define RD_DEBUG 0
@@ -66,8 +69,90 @@ public:
   list<MemoryBlock>::iterator marker;
 };
 
+
+
 vector<Bucket> buckets;
 int nextBucket; // when stack is growing, we may enter this bucket
+
+
+ struct _Mod_myrange_hashing
+  {
+    typedef std::size_t first_argument_type;
+    typedef std::size_t second_argument_type;
+    typedef std::size_t result_type;
+
+    static std::size_t mask;
+
+    result_type
+    operator()(first_argument_type __num,
+               second_argument_type __den) const noexcept
+    {
+      if (mask < __den) {
+        std::size_t n = __den-1;
+        n |= n >> 1; 
+        n |= n >> 2; 
+        n |= n >> 4;
+        n |= n >> 8;
+        n |= n >> 16;
+        n |= n >> 32;
+        mask = n;
+      }
+      __num >>= 6;
+      std::size_t probe = (__num & mask);
+      std::size_t b = (probe < __den) ? probe : (__num % __den);
+      
+      //std::cout << "my range hashing: num "<< __num << " den " << __den << " mask " << mask
+      //          << " probe " << probe << " bucket " << b << "\n";
+      
+      return b;
+    }
+  };
+
+std::size_t _Mod_myrange_hashing::mask = 1;
+
+namespace std {
+  _GLIBCXX_BEGIN_NAMESPACE_VERSION
+
+  template<typename _Alloc,
+     typename _ExtractKey, typename _Equal,
+     typename _H1, typename _Hash,
+     typename _RehashPolicy, typename _Traits>
+    class _Hashtable<Addr,  std::pair<const Addr, list<MemoryBlock>::iterator>,
+     _Alloc,
+      _ExtractKey,  _Equal,
+      _H1,  __detail::_Mod_range_hashing,  _Hash,
+      _RehashPolicy,  _Traits
+    > : public _Hashtable<Addr,
+                        std::pair<const Addr, list<MemoryBlock>::iterator>,
+                                                                             _Alloc,
+                                                                             _ExtractKey,
+                                                                             _Equal,
+                                                                             _H1,
+                                                                             _Mod_myrange_hashing,
+                                                                             _Hash,
+                                                                             _RehashPolicy,
+                                                                             _Traits
+                                                                            > 
+                                                                            {
+                                                                              public:
+    using myBase = _Hashtable<Addr,
+                        std::pair<const Addr, list<MemoryBlock>::iterator>,
+                                                                             _Alloc,
+                                                                             _ExtractKey,
+                                                                             _Equal,
+                                                                             _H1,
+                                                                             _Mod_myrange_hashing,
+                                                                             _Hash,
+                                                                             _RehashPolicy,
+                                                                             _Traits
+                                                                            >;
+    using myBase::_Hashtable;
+    using mySizeType = typename myBase::size_type;
+
+                                                                              };
+
+_GLIBCXX_END_NAMESPACE_VERSION
+}
 
 unordered_map<Addr,list<MemoryBlock>::iterator> addrMap;
 

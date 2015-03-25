@@ -7,7 +7,7 @@
 typedef void* Addr;
 
 // initialize / clear used structs
-void RD_init();
+void RD_init(int min1);
 
 // add distance buckets, starting from smallest (>0)
 // only specification of minimal distance required

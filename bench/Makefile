@@ -1,4 +1,5 @@
-CFLAGS=-g -O0
+#CFLAGS=-g -O0
+CFLAGS=-O3
 
 all: distgen
 

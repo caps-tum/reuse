@@ -5,12 +5,12 @@
  * GPLv2+ (see COPYING)
  */
 
-
 #include "pin.H"
 
 #include <stdio.h>
 #include <cassert>
 #include <cstring>
+#include <cmath>
 #include <unistd.h>
 
 #include "dist.cpp"
