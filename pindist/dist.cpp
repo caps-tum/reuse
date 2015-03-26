@@ -72,6 +72,9 @@ struct _Mod_myrange_hashing
 
     static std::size_t mask;
 
+    _Mod_myrange_hashing() {}
+    _Mod_myrange_hashing(const __detail::_Mod_range_hashing &temp) {}
+
     result_type
     operator()(first_argument_type __num,
 	       second_argument_type __den) const noexcept
