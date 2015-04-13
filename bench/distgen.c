@@ -3,6 +3,10 @@
 #include <assert.h>
 #include <malloc.h>
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #define MAXDISTCOUNT 10
 #define BLOCKLEN 64
 
@@ -34,10 +38,6 @@ void addDist(int size)
 void initBufs(int blocks)
 {
   int d, i;
-
-  buffer = (double*) memalign(64, blocks * BLOCKLEN);
-  for(i=0; i< BLOCKLEN/sizeof(double) * blocks; i++)
-    buffer[i] = (double) i;
 
   for(d=0; d<distsUsed; d++) {
     distBlocks[d] = (distSize[d] + BLOCKLEN - 1) / BLOCKLEN;
@@ -81,6 +81,33 @@ int adjustSize(int size, int diff)
   return size;
 }
 
+void runBench(int iter, int blocks, int blockDiff,
+	      double* sum, unsigned long* aCount)
+{
+  int i, d, k, j, idx;
+  double* buffer;
+
+  buffer = (double*) memalign(64, blocks * BLOCKLEN);
+  for(i=0; i< BLOCKLEN/sizeof(double) * blocks; i++)
+    buffer[i] = (double) i;
+
+  for(i=0; i<iter; i++) {
+    *sum += buffer[0];
+    for(d=0; d<distsUsed; d++) {
+      *sum += buffer[0];
+      for(k=0; k<distIter[d]; k++) {	
+	*aCount += distBlocks[d];
+	idx = 0;
+	for(j=0; j<distBlocks[d]; j++) {
+	  *sum += buffer[idx * BLOCKLEN/sizeof(double)];
+	  idx = (idx + blockDiff);
+	  if (idx > blocks) idx -= blocks;
+	}
+      }
+    }
+  }
+}
+
 int main(int argc, char* argv[])
 {
   int arg, d, i, j, k, idx;
@@ -89,6 +116,7 @@ int main(int argc, char* argv[])
   unsigned long aCount = 0;
   int blocks, blockDiff;
   double sum = 0.0;
+  int t, tcount;
 
   verbose = 1;  
   for(arg=1; arg<argc; arg++) {
@@ -113,26 +141,30 @@ int main(int argc, char* argv[])
   blocks = adjustSize(blocks, blockDiff);
   initBufs(blocks);
 
+#pragma omp parallel
+#ifdef _OPENMP
+  tcount = omp_get_num_threads();
+#else
+  tcount = 1;
+#endif
+
   if (verbose)
     fprintf(stderr,
-	    "Buffer size %d, diff %d. Running %d iterations...\n",
-	    BLOCKLEN * blocks, BLOCKLEN * blockDiff, iter);
+	    "Buffer size %d, diff %d. Running %d iterations (%d threads)...\n",
+	    BLOCKLEN * blocks, BLOCKLEN * blockDiff, iter, tcount);
 
-  for(i=0; i<iter; i++) {
-    sum += buffer[0];
-    for(d=0; d<distsUsed; d++) {
-      sum += buffer[0];
-      for(k=0; k<distIter[d]; k++) {	
-	aCount += distBlocks[d];
-	idx = 0;
-	for(j=0; j<distBlocks[d]; j++) {
-	  sum += buffer[idx * BLOCKLEN/sizeof(double)];
-	  idx = (idx + blockDiff);
-	  if (idx > blocks) idx -= blocks;
-	}
-      }
-    }
+#pragma omp parallel for reduction(+:sum) reduction(+:aCount)
+  for(t=0; t<tcount; t++) {
+    double tsum = 0.0;
+    unsigned long taCount = 0;
+
+    runBench(iter, blocks, blockDiff,
+	     &tsum, &taCount);
+
+    sum += tsum;
+    aCount += taCount;
   }
+
 
   if (verbose)
     fprintf(stderr, "ACount: %lu, sum: %g ...\n", aCount, sum);
