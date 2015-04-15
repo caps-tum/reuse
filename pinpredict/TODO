@@ -1,0 +1,5 @@
+Reduce callback overhead in instrumented code
+* FillBuffer: (AddrPredict*/Addr) tupels
+* foward AddrPredict via tool register (per Trace)
+* for a trace: just store addresses via inlinable callbacks,
+  handle adress chunk before exits
