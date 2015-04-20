@@ -21,7 +21,8 @@ typedef unsigned long long u64;
 typedef unsigned long Addr;
 
 struct AddrPredict {
-  Addr addr;
+  Addr currentAddr;
+  Addr predictedAddr;
   UINT32 hitCount;
   INT32 stride;
 
@@ -39,10 +40,15 @@ int nextAPred = 0;
 
 #define likely(x) __builtin_expect((x),1)
 
+void storeCurrentAddr(struct AddrPredict* p, Addr a)
+{
+  p->currentAddr = a;
+}
+
 void check(struct AddrPredict* p, Addr a)
 {
-    if (likely(a == p->addr)) {
-	p->addr += p->stride;
+    if (likely(a == p->predictedAddr)) {
+	p->predictedAddr += p->stride;
 	p->hitCount++;
 //	fprintf(stderr, "H I %lx %4d/%-4d: %lx      => %lx/%d\n",
 //		p->iaddr, p->hitCount, p->missCount + p->hitCount,
@@ -57,11 +63,11 @@ void check(struct AddrPredict* p, Addr a)
 
     if (p->lastStride == diff) {
 	p->stride = diff;
-	p->addr = a + diff;
+	p->predictedAddr = a + diff;
     }
     else {
 	p->lastStride = (diff > -MAXDIFF && diff < MAXDIFF) ? diff : 0;
-	p->addr = a + p->stride;
+	p->predictedAddr = a + p->stride;
     }
     //	if (p->missCount > 1000)
     //	    fprintf(stderr, "M I %lx %4d/%-4d: %lx %4d => %lx/%d\n",
@@ -70,6 +76,14 @@ void check(struct AddrPredict* p, Addr a)
     //		    p->addr, p->stride);
 }
 
+void afterExit(UINT32 off, UINT32 next)
+{
+  while(off < next) {
+    struct AddrPredict* p = &apreds[off];
+    check(p, p->currentAddr);
+    off++;
+  }
+}
 
 /* ===================================================================== */
 // Callbacks
@@ -83,7 +97,7 @@ int getAPred(Addr iaddr)
 
     struct AddrPredict* p = &apreds[nextAPred];
 
-    p->addr = 0;
+    p->predictedAddr = 0;
     p->hitCount = 0;
     p->stride = 0;
     p->lastAddr = 0;
@@ -103,12 +117,39 @@ VOID Instruction(INS ins, VOID*)
 	    int off = getAPred(INS_Address(ins));
 
 	    INS_InsertCall( ins, IPOINT_BEFORE,
-			    (AFUNPTR) check,
+			    (AFUNPTR) storeCurrentAddr,
 			    IARG_PTR, &apreds[off],
 			    IARG_MEMORYOP_EA, i,
 			    IARG_END);
 	}
     }
+}
+
+
+VOID Trace(TRACE trace, VOID *v)
+{
+    int firstAPred = nextAPred;
+
+    BBL bbl;
+    for (bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
+
+        INS ins;
+        for(ins= BBL_InsHead(bbl); INS_Valid(ins); ins = INS_Next(ins)) {
+            Instruction(ins, 0);
+        }
+
+        if (INS_IsBranchOrCall(BBL_InsTail(bbl)) && (nextAPred > firstAPred))
+	    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, (AFUNPTR) afterExit,
+                            IARG_UINT32, firstAPred,
+                            IARG_UINT32, nextAPred,
+                            IARG_END);
+
+    }
+    if (TRACE_HasFallThrough(trace) && (nextAPred > firstAPred))
+        TRACE_InsertCall( trace, IPOINT_AFTER, (AFUNPTR) afterExit,
+			  IARG_UINT32, firstAPred,
+			  IARG_UINT32, nextAPred,
+                          IARG_END);
 }
 
 VOID Fini(int code, VOID * v)
@@ -144,7 +185,8 @@ int main(int argc, char *argv[])
       return 0;
     }
 
-    INS_AddInstrumentFunction(Instruction, 0);
+    TRACE_AddInstrumentFunction(Trace, 0);
+    //INS_AddInstrumentFunction(Instruction, 0);
     PIN_AddFiniFunction(Fini, 0);
 
     //predReg = PIN_ClaimToolRegister();
