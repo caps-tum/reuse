@@ -30,18 +30,24 @@ u64 predCounters[50];
 struct AddrPredict {
   Addr currentAddr;
   Addr predictedAddr;
-  UINT32 hitCount;
   INT32 stride;
 
   Addr iaddr;
   Addr lastAddr;
   INT32 lastStride;
   UINT32 missCount;
+  UINT32 count;
 };
 
 #define MAXPREDS 1000000
 struct AddrPredict apreds[MAXPREDS];
 int nextAPred = 0;
+
+#define MAX_EXITS 100000
+int exit_from[MAX_EXITS];
+int exit_to[MAX_EXITS];
+u64 exit_counter[MAX_EXITS];
+int nextExit = 0;
 
 #define MAXDIFF 100000
 
@@ -57,7 +63,7 @@ void check(struct AddrPredict* p, Addr a)
 {
     if (likely(a == p->predictedAddr)) {
 	p->predictedAddr += p->stride;
-	p->hitCount++;
+
 //	fprintf(stderr, "H I %lx %4d/%-4d: %lx      => %lx/%d\n",
 //		p->iaddr, p->hitCount, p->missCount + p->hitCount,
 //		a, p->addr, p->stride);
@@ -111,6 +117,10 @@ void afterExitN(UINT32 off)
   }
 }
 
+void incExitCounter(int off)
+{
+  exit_counter[off]++;
+}
 
 /* ===================================================================== */
 // Callbacks
@@ -125,22 +135,38 @@ int getAPred(Addr iaddr)
     struct AddrPredict* p = &apreds[nextAPred];
 
     p->predictedAddr = 0;
-    p->hitCount = 0;
     p->stride = 0;
     p->lastAddr = 0;
     p->lastStride = 0;
     p->iaddr = iaddr;
     p->missCount = 0;
+    p->count = 0;
 
     nextAPred++;
     return nextAPred-1;
 }
 
+int getExit(int from, int to)
+{
+    if (nextExit >= MAX_EXITS) {
+	fprintf(stderr, "ERROR: Too many trace exit counters needed\n");
+	exit(1);
+    }
+
+    int c = nextExit;
+    exit_from[c] = from;
+    exit_to[c] = to;
+    exit_counter[c] = 0;
+
+    nextExit++;
+    return c;
+}
 
 VOID Instruction(INS ins, VOID*)
 {
     for (UINT32 i = 0; i < INS_MemoryOperandCount(ins); i++) {
-	if (INS_MemoryOperandIsRead(ins,i) || INS_MemoryOperandIsWritten(ins,i)) {
+	if (INS_MemoryOperandIsRead(ins,i) ||
+	    INS_MemoryOperandIsWritten(ins,i)) {
 	    int off = getAPred(INS_Address(ins));
 
 	    INS_InsertCall( ins, IPOINT_BEFORE,
@@ -188,7 +214,7 @@ VOID Trace(TRACE trace, VOID *v)
         }
 
         if (INS_IsBranchOrCall(BBL_InsTail(bbl))) {
-	  AFUNPTR p = afterExitPtr(nextAPred-first);
+          AFUNPTR p = afterExitPtr(nextAPred-first);
 	  if (p == (AFUNPTR) afterExit) {
 	    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, p,
                             IARG_UINT32, first,
@@ -199,7 +225,11 @@ VOID Trace(TRACE trace, VOID *v)
 	    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, p,
 	                    IARG_UINT32, first,
                             IARG_END);
-	  }
+          }
+	  BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH,
+                          (AFUNPTR) incExitCounter,
+                          IARG_UINT32, getExit(first, nextAPred),
+                          IARG_END);
 	}
     }
     if (TRACE_HasFallThrough(trace) && (nextAPred > first)) {
@@ -215,13 +245,25 @@ VOID Trace(TRACE trace, VOID *v)
 			  IARG_UINT32, first,
                           IARG_END);
       }
+      TRACE_InsertCall( trace, IPOINT_AFTER, (AFUNPTR) incExitCounter,
+                        IARG_UINT32, getExit(first, nextAPred),
+                        IARG_END);
     }
 }
 
 VOID Fini(int code, VOID * v)
 {
+    u64 totalMissCount = 0;
     u64 totalHitCount = 0;
     u64 totalCount = 0;
+    u64 exitCounter = 0;
+
+    for(int i=0; i<nextExit; i++) {
+      for(int j=exit_from[i]; j<exit_to[i]; j++) {
+	apreds[j].count += exit_counter[i];
+	exitCounter += exit_counter[i];
+      }
+    }
 
     for(int i=0; i<nextAPred; i++) {
 	struct AddrPredict* p = &apreds[i];
@@ -230,9 +272,10 @@ VOID Fini(int code, VOID * v)
 //	    fprintf(stderr, "%5i: I %lx, %d/%d\n",
 //		    i, p2->iaddr, p1->hitCount, p1->hitCount + p2->missCount);
 
-	totalHitCount += p->hitCount;
-	totalCount += p->missCount + p->hitCount;
+	totalMissCount += p->missCount;
+	totalCount += p->count;
     }
+    totalHitCount = totalCount - totalMissCount;
 
 #if DEBUG_STATS
     for(int i=0; i<MAX_PREDCOUNTERS; i++) {
@@ -241,9 +284,11 @@ VOID Fini(int code, VOID * v)
     }
 #endif
 
-    fprintf(stderr, "Predicted: %llu / %llu (preds: %d) = %5.2f %%\n",
-	    totalHitCount, totalCount, nextAPred,
+    fprintf(stderr, "Predicted: %llu / %llu = %5.2f %%\n",
+            totalHitCount, totalCount,
 	    100.0 * (double)totalHitCount / (double)totalCount);
+    fprintf(stderr, " predictors: %d, trace exits: %d, exit counter: %llu\n",
+            nextAPred, nextExit, exitCounter);
 }
 
 /* ===================================================================== */
