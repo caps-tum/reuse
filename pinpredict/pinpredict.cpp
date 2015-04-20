@@ -16,9 +16,16 @@
 #include <map>
 #include <vector>
 
+#define DEBUG_STATS 0
+
 typedef UINT32 u32;
 typedef unsigned long long u64;
 typedef unsigned long Addr;
+
+#if DEBUG_STATS
+#define MAX_PREDCOUNTERS 50
+u64 predCounters[50];
+#endif
 
 struct AddrPredict {
   Addr currentAddr;
@@ -45,6 +52,7 @@ void storeCurrentAddr(struct AddrPredict* p, Addr a)
   p->currentAddr = a;
 }
 
+__attribute__((always_inline)) inline
 void check(struct AddrPredict* p, Addr a)
 {
     if (likely(a == p->predictedAddr)) {
@@ -78,12 +86,31 @@ void check(struct AddrPredict* p, Addr a)
 
 void afterExit(UINT32 off, UINT32 next)
 {
-  while(off < next) {
-    struct AddrPredict* p = &apreds[off];
+#if DEBUG_STATS
+  predCounters[next-off]++;
+#endif
+
+  struct AddrPredict* p = &apreds[off];
+  while(1) {
     check(p, p->currentAddr);
     off++;
+    if (off == next) return;
+    p++;
   }
 }
+
+template<int N>
+void afterExitN(UINT32 off)
+{
+  struct AddrPredict* p;
+  p = &apreds[off];
+  check(p, p->currentAddr);
+  for(int n=1; n<N; n++) {
+    p++;
+    check(p, p->currentAddr);
+  }
+}
+
 
 /* ===================================================================== */
 // Callbacks
@@ -125,10 +152,32 @@ VOID Instruction(INS ins, VOID*)
     }
 }
 
+AFUNPTR afterExitPtr(int n)
+{
+  if (n==0) return 0;
+  //return (AFUNPTR) afterExit;
+
+#if DEBUG_STATS
+  return (AFUNPTR) afterExit;
+#endif
+
+  switch(n) {
+  case 1: return (AFUNPTR) afterExitN<1>;
+  case 2: return (AFUNPTR) afterExitN<2>;
+  case 3: return (AFUNPTR) afterExitN<3>;
+  case 4: return (AFUNPTR) afterExitN<4>;
+  case 5: return (AFUNPTR) afterExitN<5>;
+  case 6: return (AFUNPTR) afterExitN<6>;
+  case 7: return (AFUNPTR) afterExitN<7>;
+  case 8: return (AFUNPTR) afterExitN<8>;
+  case 9: return (AFUNPTR) afterExitN<9>;
+  }
+  return (AFUNPTR) afterExit;
+}
 
 VOID Trace(TRACE trace, VOID *v)
 {
-    int firstAPred = nextAPred;
+    int first = nextAPred;
 
     BBL bbl;
     for (bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
@@ -138,18 +187,35 @@ VOID Trace(TRACE trace, VOID *v)
             Instruction(ins, 0);
         }
 
-        if (INS_IsBranchOrCall(BBL_InsTail(bbl)) && (nextAPred > firstAPred))
-	    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, (AFUNPTR) afterExit,
-                            IARG_UINT32, firstAPred,
+        if (INS_IsBranchOrCall(BBL_InsTail(bbl))) {
+	  AFUNPTR p = afterExitPtr(nextAPred-first);
+	  if (p == (AFUNPTR) afterExit) {
+	    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, p,
+                            IARG_UINT32, first,
                             IARG_UINT32, nextAPred,
                             IARG_END);
-
+	  }
+	  else if (p != 0) {
+	    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, p,
+	                    IARG_UINT32, first,
+                            IARG_END);
+	  }
+	}
     }
-    if (TRACE_HasFallThrough(trace) && (nextAPred > firstAPred))
-        TRACE_InsertCall( trace, IPOINT_AFTER, (AFUNPTR) afterExit,
-			  IARG_UINT32, firstAPred,
+    if (TRACE_HasFallThrough(trace) && (nextAPred > first)) {
+      AFUNPTR p = afterExitPtr(nextAPred-first);
+      if (p == (AFUNPTR) afterExit) {
+        TRACE_InsertCall( trace, IPOINT_AFTER, p,
+			  IARG_UINT32, first,
 			  IARG_UINT32, nextAPred,
                           IARG_END);
+      }
+      else if (p != 0) {
+        TRACE_InsertCall( trace, IPOINT_AFTER, p,
+			  IARG_UINT32, first,
+                          IARG_END);
+      }
+    }
 }
 
 VOID Fini(int code, VOID * v)
@@ -167,6 +233,13 @@ VOID Fini(int code, VOID * v)
 	totalHitCount += p->hitCount;
 	totalCount += p->missCount + p->hitCount;
     }
+
+#if DEBUG_STATS
+    for(int i=0; i<MAX_PREDCOUNTERS; i++) {
+      if (predCounters[i] == 0) continue;
+      fprintf(stderr, " PredCounters %2d : %llu\n", i, predCounters[i]);
+    }
+#endif
 
     fprintf(stderr, "Predicted: %llu / %llu (preds: %d) = %5.2f %%\n",
 	    totalHitCount, totalCount, nextAPred,
@@ -190,6 +263,11 @@ int main(int argc, char *argv[])
     PIN_AddFiniFunction(Fini, 0);
 
     //predReg = PIN_ClaimToolRegister();
+
+#if DEBUG_STATS
+    for(int i=0; i<MAX_PREDCOUNTERS; i++)
+      predCounters[i] = 0;
+#endif
 
     // Never returns
     PIN_StartProgram();
