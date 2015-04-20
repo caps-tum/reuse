@@ -41,6 +41,7 @@ struct AddrPredict {
 
 #define MAXPREDS 1000000
 struct AddrPredict apreds[MAXPREDS];
+Addr currentAddrs[MAXPREDS];
 int nextAPred = 0;
 
 #define MAX_EXITS 100000
@@ -49,13 +50,16 @@ int exit_to[MAX_EXITS];
 u64 exit_counter[MAX_EXITS];
 int nextExit = 0;
 
+REG predReg;
+
 #define MAXDIFF 100000
 
 #define likely(x) __builtin_expect((x),1)
 
-void storeCurrentAddr(struct AddrPredict* p, Addr a)
+void* storeCurrentAddr(struct AddrPredict* p, Addr a)
 {
   p->currentAddr = a;
+  return p+1;
 }
 
 __attribute__((always_inline)) inline
@@ -162,6 +166,8 @@ int getExit(int from, int to)
     return c;
 }
 
+int isFirstInstruction = 1;
+
 VOID Instruction(INS ins, VOID*)
 {
     for (UINT32 i = 0; i < INS_MemoryOperandCount(ins); i++) {
@@ -169,11 +175,22 @@ VOID Instruction(INS ins, VOID*)
 	    INS_MemoryOperandIsWritten(ins,i)) {
 	    int off = getAPred(INS_Address(ins));
 
-	    INS_InsertCall( ins, IPOINT_BEFORE,
-			    (AFUNPTR) storeCurrentAddr,
-			    IARG_PTR, &apreds[off],
-			    IARG_MEMORYOP_EA, i,
-			    IARG_END);
+	    if (isFirstInstruction) {
+	      INS_InsertCall( ins, IPOINT_BEFORE,
+			      (AFUNPTR) storeCurrentAddr,
+			      IARG_PTR, &apreds[off],
+			      IARG_MEMORYOP_EA, i,
+			      IARG_RETURN_REGS, predReg,
+			      IARG_END);
+	      isFirstInstruction=0;
+	    }
+	    else
+	      INS_InsertCall( ins, IPOINT_BEFORE,
+			      (AFUNPTR) storeCurrentAddr,
+			      IARG_REG_VALUE, predReg,
+			      IARG_MEMORYOP_EA, i,
+			      IARG_RETURN_REGS, predReg,
+			      IARG_END);
 	}
     }
 }
@@ -204,6 +221,7 @@ AFUNPTR afterExitPtr(int n)
 VOID Trace(TRACE trace, VOID *v)
 {
     int first = nextAPred;
+    isFirstInstruction = 1;
 
     BBL bbl;
     for (bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
@@ -307,7 +325,7 @@ int main(int argc, char *argv[])
     //INS_AddInstrumentFunction(Instruction, 0);
     PIN_AddFiniFunction(Fini, 0);
 
-    //predReg = PIN_ClaimToolRegister();
+    predReg = PIN_ClaimToolRegister();
 
 #if DEBUG_STATS
     for(int i=0; i<MAX_PREDCOUNTERS; i++)
