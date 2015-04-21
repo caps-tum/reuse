@@ -50,17 +50,34 @@ int exit_to[MAX_EXITS];
 u64 exit_counter[MAX_EXITS];
 int nextExit = 0;
 
+#define MAX_TRACEPREDS 50;
+#define MAX_THREADS 20
+
+struct ThreadState {
+    Addr addrBuf;
+};
+
 REG predReg;
 
 #define MAXDIFF 100000
 
 #define likely(x) __builtin_expect((x),1)
 
-void* storeCurrentAddr(struct AddrPredict* p, Addr a)
+/* ===================================================================== */
+// Callbacks
+
+template<int N>
+void* returnPredPtrN(struct AddrPredict* p)
 {
-  p->currentAddr = a;
-  return p+1;
+    return p+N;
 }
+
+template<int N>
+void storeAddrN(struct AddrPredict* p, Addr a)
+{
+    (p+N)->currentAddr = a;
+}
+
 
 __attribute__((always_inline)) inline
 void check(struct AddrPredict* p, Addr a)
@@ -127,7 +144,7 @@ void incExitCounter(int off)
 }
 
 /* ===================================================================== */
-// Callbacks
+// Instrumentation
 
 int getAPred(Addr iaddr)
 {
@@ -166,7 +183,31 @@ int getExit(int from, int to)
     return c;
 }
 
-int isFirstInstruction = 1;
+AFUNPTR storeAddrPtr(int n)
+{
+    switch(n) {
+    case 0: return (AFUNPTR) storeAddrN<0>;
+    case 1: return (AFUNPTR) storeAddrN<1>;
+    case 2: return (AFUNPTR) storeAddrN<2>;
+    case 3: return (AFUNPTR) storeAddrN<3>;
+    case 4: return (AFUNPTR) storeAddrN<4>;
+    case 5: return (AFUNPTR) storeAddrN<5>;
+    case 6: return (AFUNPTR) storeAddrN<6>;
+    case 7: return (AFUNPTR) storeAddrN<7>;
+    case 8: return (AFUNPTR) storeAddrN<8>;
+    case 9: return (AFUNPTR) storeAddrN<9>;
+    }
+
+    fprintf(stderr, "ERROR: in address store instrumentation\n");
+    exit(1);
+}
+
+// up to which offset store into buffer for current address
+#define MAX_ADDROFFSET 10
+
+// for instrumentation: number of accesses already observed in current trace
+int accNumber = 0;
+int accBase = 0;
 
 VOID Instruction(INS ins, VOID*)
 {
@@ -175,22 +216,29 @@ VOID Instruction(INS ins, VOID*)
 	    INS_MemoryOperandIsWritten(ins,i)) {
 	    int off = getAPred(INS_Address(ins));
 
-	    if (isFirstInstruction) {
-	      INS_InsertCall( ins, IPOINT_BEFORE,
-			      (AFUNPTR) storeCurrentAddr,
-			      IARG_PTR, &apreds[off],
-			      IARG_MEMORYOP_EA, i,
-			      IARG_RETURN_REGS, predReg,
-			      IARG_END);
-	      isFirstInstruction=0;
+	    if (accNumber == 0)
+		INS_InsertCall( ins, IPOINT_BEFORE,
+				(AFUNPTR) returnPredPtrN<0>,
+				IARG_PTR, &apreds[off],
+				IARG_RETURN_REGS, predReg,
+				IARG_END);
+
+	    if (accNumber - accBase >= MAX_ADDROFFSET) {
+		INS_InsertCall( ins, IPOINT_BEFORE,
+				(AFUNPTR) returnPredPtrN<MAX_ADDROFFSET>,
+				IARG_REG_VALUE, predReg,
+				IARG_RETURN_REGS, predReg,
+				IARG_END);
+		accBase += MAX_ADDROFFSET;
 	    }
-	    else
-	      INS_InsertCall( ins, IPOINT_BEFORE,
-			      (AFUNPTR) storeCurrentAddr,
-			      IARG_REG_VALUE, predReg,
-			      IARG_MEMORYOP_EA, i,
-			      IARG_RETURN_REGS, predReg,
-			      IARG_END);
+
+	    AFUNPTR p = storeAddrPtr(accNumber - accBase);
+	    INS_InsertCall( ins, IPOINT_BEFORE, p,
+			    IARG_REG_VALUE, predReg,
+			    IARG_MEMORYOP_EA, i,
+			    IARG_END);
+
+	    accNumber++;
 	}
     }
 }
@@ -221,7 +269,8 @@ AFUNPTR afterExitPtr(int n)
 VOID Trace(TRACE trace, VOID *v)
 {
     int first = nextAPred;
-    isFirstInstruction = 1;
+    accNumber = 0;
+    accBase = 0;
 
     BBL bbl;
     for (bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
