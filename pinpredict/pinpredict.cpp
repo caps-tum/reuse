@@ -41,7 +41,6 @@ struct AddrPredict {
 
 #define MAXPREDS 1000000
 struct AddrPredict apreds[MAXPREDS];
-Addr currentAddrs[MAXPREDS];
 int nextAPred = 0;
 
 #define MAX_EXITS 100000
@@ -50,11 +49,11 @@ int exit_to[MAX_EXITS];
 u64 exit_counter[MAX_EXITS];
 int nextExit = 0;
 
-#define MAX_TRACEPREDS 50;
+#define MAX_TRACEPREDS 50
 #define MAX_THREADS 20
 
-struct ThreadState {
-    Addr addrBuf;
+struct ThreadData {
+    Addr addrBuf[MAX_TRACEPREDS];
 };
 
 REG predReg;
@@ -183,27 +182,30 @@ int getExit(int from, int to)
     return c;
 }
 
+#define MAX_STOREFUNC 30
+AFUNPTR storeFuncs[MAX_STOREFUNC];
+
+template<int N>
+void storeFuncGen()
+{
+    storeFuncs[N] = (AFUNPTR) storeAddrN<N>;
+    storeFuncGen<N-1>();
+}
+
+template<>
+void storeFuncGen<0>() { storeFuncs[0] = (AFUNPTR) storeAddrN<0>; }
+
+
 AFUNPTR storeAddrPtr(int n)
 {
-    switch(n) {
-    case 0: return (AFUNPTR) storeAddrN<0>;
-    case 1: return (AFUNPTR) storeAddrN<1>;
-    case 2: return (AFUNPTR) storeAddrN<2>;
-    case 3: return (AFUNPTR) storeAddrN<3>;
-    case 4: return (AFUNPTR) storeAddrN<4>;
-    case 5: return (AFUNPTR) storeAddrN<5>;
-    case 6: return (AFUNPTR) storeAddrN<6>;
-    case 7: return (AFUNPTR) storeAddrN<7>;
-    case 8: return (AFUNPTR) storeAddrN<8>;
-    case 9: return (AFUNPTR) storeAddrN<9>;
-    }
+    if (n>=0 && n<MAX_STOREFUNC) return storeFuncs[n];
 
     fprintf(stderr, "ERROR: in address store instrumentation\n");
     exit(1);
 }
 
 // up to which offset store into buffer for current address
-#define MAX_ADDROFFSET 10
+#define MAX_ADDROFFSET 30
 
 // for instrumentation: number of accesses already observed in current trace
 int accNumber = 0;
@@ -375,6 +377,7 @@ int main(int argc, char *argv[])
     PIN_AddFiniFunction(Fini, 0);
 
     predReg = PIN_ClaimToolRegister();
+    storeFuncGen<MAX_STOREFUNC-1>();
 
 #if DEBUG_STATS
     for(int i=0; i<MAX_PREDCOUNTERS; i++)
