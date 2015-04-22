@@ -131,10 +131,8 @@ void afterExit(THREADID tid, UINT32 off, UINT32 next)
 }
 
 template<int N>
-void afterExitN(THREADID tid, UINT32 off)
+void afterExitN(struct AddrPredict* p)
 {
-  struct AddrPredict* p;
-  p = &(tdata[tid]->apreds[off]);
   check(p, p->currentAddr);
   for(int n=1; n<N; n++) {
     p++;
@@ -324,9 +322,18 @@ VOID Trace(TRACE trace, VOID *v)
                                 IARG_END);
             }
             else if (p != 0) {
+                // call to afterExitN
+                if (accBase > 0) {
+                    // predReg has to be set again
+                    BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH,
+                                    (AFUNPTR) returnPredPtr,
+                                    IARG_THREAD_ID,
+                                    IARG_UINT32, first,
+                                    IARG_RETURN_REGS, predReg,
+                                    IARG_END);
+                }
                 BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, p,
-                                IARG_THREAD_ID,
-                                IARG_UINT32, first,
+                                IARG_REG_VALUE, predReg,
                                 IARG_END);
             }
             BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH,
@@ -336,7 +343,7 @@ VOID Trace(TRACE trace, VOID *v)
                             IARG_END);
         }
     }
-    if (TRACE_HasFallThrough(trace) && (nextAPred > first)) {
+    if (TRACE_HasFallThrough(trace)) {
         AFUNPTR p = afterExitPtr(nextAPred-first);
         if (p == (AFUNPTR) afterExit) {
             TRACE_InsertCall( trace, IPOINT_AFTER, p,
@@ -346,9 +353,18 @@ VOID Trace(TRACE trace, VOID *v)
                               IARG_END);
         }
         else if (p != 0) {
+            // call to afterExitN
+            if (accBase > 0) {
+                // predReg has to be set again
+                TRACE_InsertCall( trace, IPOINT_AFTER,
+                                  (AFUNPTR) returnPredPtr,
+                                  IARG_THREAD_ID,
+                                  IARG_UINT32, first,
+                                  IARG_RETURN_REGS, predReg,
+                                  IARG_END);
+            }
             TRACE_InsertCall( trace, IPOINT_AFTER, p,
-                              IARG_THREAD_ID,
-                              IARG_UINT32, first,
+                              IARG_REG_VALUE, predReg,
                               IARG_END);
         }
         TRACE_InsertCall( trace, IPOINT_AFTER, (AFUNPTR) incExitCounter,
