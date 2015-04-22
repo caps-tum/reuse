@@ -1,0 +1,8 @@
+bench/distgen.c
+pindist/dist.cpp
+pindist/dist.h
+pindist/distcalc.cpp
+pindist/pindist.cpp
+pindist/pintrace.cpp
+pinpredict/cp.c
+pinpredict/pinpredict.cpp
