@@ -18,6 +18,8 @@
 
 #define DEBUG_STATS 0
 
+#define IGNORE_STACK 1
+
 typedef UINT32 u32;
 typedef unsigned long long u64;
 typedef unsigned long Addr;
@@ -41,6 +43,7 @@ int nextAPred = 0;
 #define MAX_EXITS 50000
 int exit_from[MAX_EXITS];
 int exit_to[MAX_EXITS];
+int exit_stackAccs[MAX_EXITS];
 int nextExit = 0;
 
 // for DEBUG_STATS
@@ -198,7 +201,7 @@ int getAPred(Addr iaddr)
     return p;
 }
 
-int getExit(int from, int to)
+int getExit(int from, int to, int stackAccs)
 {
     if (nextExit >= MAX_EXITS) {
 	fprintf(stderr, "ERROR: Too many trace exit counters needed\n");
@@ -208,6 +211,7 @@ int getExit(int from, int to)
     int c = nextExit;
     exit_from[c] = from;
     exit_to[c] = to;
+    exit_stackAccs[c] = stackAccs;
 
     nextExit++;
     return c;
@@ -241,9 +245,18 @@ AFUNPTR storeAddrPtr(int n)
 // for instrumentation: number of accesses already observed in current trace
 int accNumber = 0;
 int accBase = 0;
+int accStack = 0;
 
 VOID Instruction(INS ins, VOID*)
 {
+#if IGNORE_STACK
+    // predictability of stack accesses not interesting: always from L1
+    if (INS_IsStackRead(ins) || INS_IsStackWrite(ins)) {
+        accStack++;
+        return;
+    }
+#endif
+
     for (UINT32 i = 0; i < INS_MemoryOperandCount(ins); i++) {
         if (INS_MemoryOperandIsRead(ins,i) ||
                 INS_MemoryOperandIsWritten(ins,i)) {
@@ -303,6 +316,7 @@ VOID Trace(TRACE trace, VOID *v)
     int first = nextAPred;
     accNumber = 0;
     accBase = 0;
+    accStack = 0;
 
     BBL bbl;
     for (bbl = TRACE_BblHead(trace); BBL_Valid(bbl); bbl = BBL_Next(bbl)) {
@@ -339,7 +353,7 @@ VOID Trace(TRACE trace, VOID *v)
             BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH,
                             (AFUNPTR) incExitCounter,
                             IARG_THREAD_ID,
-                            IARG_UINT32, getExit(first, nextAPred),
+                            IARG_UINT32, getExit(first, nextAPred, accStack),
                             IARG_END);
         }
     }
@@ -369,7 +383,7 @@ VOID Trace(TRACE trace, VOID *v)
         }
         TRACE_InsertCall( trace, IPOINT_AFTER, (AFUNPTR) incExitCounter,
                           IARG_THREAD_ID,
-                          IARG_UINT32, getExit(first, nextAPred),
+                          IARG_UINT32, getExit(first, nextAPred, accStack),
                           IARG_END);
     }
 }
@@ -380,6 +394,7 @@ VOID Fini(int code, VOID * v)
     u64 totalHitCount = 0;
     u64 totalCount = 0;
     u64 totalCount2 = 0;
+    int accs;
 
     fprintf(stderr,
             "==\n"
@@ -400,6 +415,8 @@ VOID Fini(int code, VOID * v)
         for(int i=0; i<nextExit; i++) {
             u64 counter = d->exit_counter[i];
             if (counter == 0) continue;
+            accs = exit_to[i] - exit_from[i] + exit_stackAccs[i];
+            threadCount2 += accs * counter;
             threadExitsUsed++;
 
             for(int j=exit_from[i]; j<exit_to[i]; j++) {
@@ -422,10 +439,11 @@ VOID Fini(int code, VOID * v)
         totalCount2 += threadCount2;
 
         fprintf(stderr, "  Thread %d\n", tid);
-        fprintf(stderr, "    predicted: %llu / %llu = %5.2f %%\n",
+        fprintf(stderr, "    predicted%s: %llu / %llu = %5.2f %%\n",
+                (threadCount == threadCount2) ? "":" (no stack accesses)",
                 threadHitCount, threadCount,
                 100.0 * (double)threadHitCount / (double)threadCount);
-        fprintf(stderr, "    (exits used: %d, counters: %llu)\n",
+        fprintf(stderr, "    (exits used: %d, all accesses: %llu)\n",
                 threadExitsUsed, threadCount2);
 
         for(int i=0; i<MAX_PREDCOUNTERS; i++) {
