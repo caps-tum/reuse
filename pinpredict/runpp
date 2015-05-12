@@ -1,1 +1,0 @@
-time $PIN_ROOT/pin -t /home/weidendo/Forschung/ReuseDists/pinpredict/obj-intel64/pinpredict.so $*

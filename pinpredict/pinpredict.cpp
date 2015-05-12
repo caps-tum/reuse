@@ -28,7 +28,7 @@ typedef unsigned long Addr;
 struct AddrPredict {
   Addr currentAddr;
   Addr predictedAddr;
-  INT32 stride;
+  INT32 predictedStride;
 
   INT32 lastStride;
   Addr lastAddr;
@@ -62,7 +62,8 @@ REG predReg;
 
 #define MAXDIFF 100000
 
-#define likely(x) __builtin_expect((x),1)
+#define likely(x)   __builtin_expect((x),1)
+#define unlikely(x) __builtin_expect((x),0)
 
 /* ===================================================================== */
 // Callbacks
@@ -89,7 +90,14 @@ __attribute__((always_inline)) inline
 void check(struct AddrPredict* p, Addr a)
 {
     if (likely(a == p->predictedAddr)) {
-	p->predictedAddr += p->stride;
+#if 0
+	// not resetting lastStride to predicted on successful prediction
+	// can sometimes result in wrong prediction
+	// however, it does not change results much and reduces performance
+	if (unlikely(p->predictedStride != p->lastStride))
+	    p->lastStride = p->predictedStride;
+#endif
+	p->predictedAddr += p->predictedStride;
 
 //	fprintf(stderr, "H I %lx %4d/%-4d: %lx      => %lx/%d\n",
 //		p->iaddr, p->hitCount, p->missCount + p->hitCount,
@@ -99,16 +107,16 @@ void check(struct AddrPredict* p, Addr a)
 
     p->missCount++;
 
-    long diff = a - p->lastAddr;
+    long stride = a - p->lastAddr;
     p->lastAddr = a;
 
-    if (p->lastStride == diff) {
-	p->stride = diff;
-	p->predictedAddr = a + diff;
+    if (p->lastStride == stride) {
+	p->predictedStride = stride;
+	p->predictedAddr = a + stride;
     }
     else {
-	p->lastStride = (diff > -MAXDIFF && diff < MAXDIFF) ? diff : 0;
-	p->predictedAddr = a + p->stride;
+	p->lastStride = (stride > -MAXDIFF && stride < MAXDIFF) ? stride : 0;
+	p->predictedAddr = a + p->predictedStride;
     }
     //	if (p->missCount > 1000)
     //	    fprintf(stderr, "M I %lx %4d/%-4d: %lx %4d => %lx/%d\n",
@@ -168,7 +176,7 @@ VOID ThreadStart(THREADID tid, CONTEXT *ctxt, INT32 flags, VOID *v)
 
         p->currentAddr = 0;
         p->predictedAddr = 0;
-        p->stride = 0;
+	p->predictedStride = 0;
         p->lastAddr = 0;
         p->lastStride = 0;
         p->missCount = 0;
