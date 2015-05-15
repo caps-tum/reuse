@@ -15,6 +15,7 @@
 #include <set>
 #include <map>
 #include <vector>
+#include <algorithm>
 
 #define DEBUG_STATS 0
 
@@ -23,7 +24,6 @@
 typedef UINT32 u32;
 typedef unsigned long long u64;
 typedef unsigned long Addr;
-
 
 struct AddrPredict {
   Addr currentAddr;
@@ -36,8 +36,15 @@ struct AddrPredict {
   UINT32 count;
 };
 
+struct PredInfo {
+  Addr iaddr;
+  string funcname;
+  string filename;
+  int line, column;
+};
+
 #define MAX_PREDS 100000
-Addr predIAddr[MAX_PREDS];
+struct PredInfo predInfo[MAX_PREDS];
 int nextAPred = 0;
 
 #define MAX_EXITS 50000
@@ -203,7 +210,12 @@ int getAPred(Addr iaddr)
 	exit(1);
     }
     int p = nextAPred;
-    predIAddr[p] = iaddr;
+    predInfo[p].iaddr = iaddr;
+    predInfo[p].funcname = RTN_FindNameByAddress(iaddr);
+    PIN_GetSourceLocation(iaddr,
+			  &(predInfo[p].column),
+			  &(predInfo[p].line),
+			  &(predInfo[p].filename));
 
     nextAPred++;
     return p;
@@ -268,7 +280,8 @@ VOID Instruction(INS ins, VOID*)
     for (UINT32 i = 0; i < INS_MemoryOperandCount(ins); i++) {
         if (INS_MemoryOperandIsRead(ins,i) ||
                 INS_MemoryOperandIsWritten(ins,i)) {
-            int off = getAPred(INS_Address(ins));
+	  unsigned long int a = INS_Address(ins);
+	  int off = getAPred(a);
 
             if (accNumber == 0)
                 INS_InsertCall( ins, IPOINT_BEFORE, (AFUNPTR) returnPredPtr,
@@ -318,6 +331,7 @@ AFUNPTR afterExitPtr(int n)
   }
   return (AFUNPTR) afterExit;
 }
+
 
 VOID Trace(TRACE trace, VOID *v)
 {
@@ -396,6 +410,12 @@ VOID Trace(TRACE trace, VOID *v)
     }
 }
 
+struct namesorter {
+    namesorter(const map<string,u64>& m):_m(m) {}
+    bool operator()(string i, string j) { return _m.at(i)<_m.at(j);}
+    const map<string,u64>& _m;
+};
+
 VOID Fini(int code, VOID * v)
 {
     u64 totalMissCount = 0;
@@ -403,6 +423,10 @@ VOID Fini(int code, VOID * v)
     u64 totalCount = 0;
     u64 totalCount2 = 0;
     int accs;
+
+    map<string,u64> routineTotals;
+    map<string,u64> routineMisses;
+    map<u64,string> sortedNames;
 
     fprintf(stderr,
             "==\n"
@@ -433,11 +457,17 @@ VOID Fini(int code, VOID * v)
             }
         }
 
+	routineMisses.clear();
+	routineTotals.clear();
+	sortedNames.clear();
         for(int i=0; i<nextAPred; i++) {
             struct AddrPredict* p = &(d->apreds[i]);
 
             threadMissCount += p->missCount;
             threadCount += p->count;
+
+	    routineTotals[predInfo[i].funcname] += p->count;
+	    routineMisses[predInfo[i].funcname] += p->missCount;
         }
         threadHitCount = threadCount - threadMissCount;
 
@@ -446,6 +476,7 @@ VOID Fini(int code, VOID * v)
         totalCount += threadCount;
         totalCount2 += threadCount2;
 
+
         fprintf(stderr, "  Thread %d\n", tid);
         fprintf(stderr, "    predicted%s: %llu / %llu = %5.2f %%\n",
                 (threadCount == threadCount2) ? "":" (no stack accesses)",
@@ -453,6 +484,31 @@ VOID Fini(int code, VOID * v)
                 100.0 * (double)threadHitCount / (double)threadCount);
         fprintf(stderr, "    (exits used: %d, all accesses: %llu)\n",
                 threadExitsUsed, threadCount2);
+
+	vector<string> names;
+	map<string,u64>::const_iterator it;
+	for(it = routineMisses.begin(); it != routineMisses.end(); ++it) {
+	    string n = it->first;
+	    if (routineTotals[n] > 0)
+		names.push_back(n);
+	}
+
+	sort(names.begin(), names.end(), namesorter(routineMisses));
+	vector<string>::reverse_iterator rit;
+	u64 missesShown = 0;
+	for(rit = names.rbegin(); rit != names.rend(); ++rit) {
+	    u64 total = routineTotals[*rit];
+	    u64 misses = routineMisses[*rit];
+	    u64 hits = total - misses;
+	    fprintf(stderr, "  %30s : %8llu, %8llu misses (%6.2f %%), %8llu hits (%6.2f %%)\n",
+		    (*rit).c_str(), total,
+		    misses, 100.0 * misses/total,
+		    hits, 100.0 * hits/total);
+
+	    // stop after 99% misses shown
+	    missesShown += misses;
+	    if (100.0 * missesShown / threadMissCount > 99.0) break;
+}
 
         for(int i=0; i<MAX_PREDCOUNTERS; i++) {
             if (d->predCounters[i] == 0) continue;
@@ -471,12 +527,12 @@ VOID Fini(int code, VOID * v)
 
 int main(int argc, char *argv[])
 {
-    PIN_InitSymbols();
     if( PIN_Init(argc,argv) ) {
       fprintf(stderr, "PinPredict V0.1\n");
       return 0;
     }
 
+    PIN_InitSymbols();
     predReg = PIN_ClaimToolRegister();
     storeFuncGen<MAX_STOREFUNC-1>();
 
