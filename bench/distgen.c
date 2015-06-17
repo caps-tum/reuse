@@ -12,10 +12,14 @@
 #define BLOCKLEN 64
 #define MAXTHREADS 64
 
+struct entry {
+  double v;
+  struct entry *next;
+};
+
 int distSize[MAXDISTCOUNT];
 int distIter[MAXDISTCOUNT];
 int distBlocks[MAXDISTCOUNT];
-double* buffer;
 int distsUsed = 0;
 int verbose = 0;
 
@@ -73,6 +77,7 @@ void usage(char* argv0)
 	  "\nOptions:\n"
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
+	  "  -d           travers by dependency chain\n"
 	  "  -v           be verbose\n", argv0);
   fprintf(stderr,
 	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
@@ -93,26 +98,39 @@ int adjustSize(int size, int diff)
   return size;
 }
 
-void runBench(double* buffer, int iter, int blocks, int blockDiff,
+void runBench(struct entry* buffer,
+	      int iter, int blocks, int blockDiff, int depChain,
 	      double* sum, unsigned long* aCount)
 {
-  int i, d, k, j, idx;
-
+  int i, d, k, j, idx, max;
   double lsum = *sum;
-  int idxIncr = blockDiff * BLOCKLEN/sizeof(double);
-  int idxMax = blocks * BLOCKLEN/sizeof(double);
+  int idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
+  int idxMax = blocks * BLOCKLEN/sizeof(struct entry);
 
   for(i=0; i<iter; i++) {
-    lsum += buffer[0];
+    lsum += buffer[0].v;
     for(d=0; d<distsUsed; d++) {
-      lsum += buffer[0];
-      for(k=0; k<distIter[d]; k++) {	
+      lsum += buffer[0].v;
+      for(k=0; k<distIter[d]; k++) {
+	//fprintf(stderr, "D %d, I %d\n", d, k);
 	*aCount += distBlocks[d];
-	idx = 0;
-	for(j=0; j<distBlocks[d]; j++) {
-	  lsum += buffer[idx];
-	  idx += idxIncr;
-	  if (idx > idxMax) idx -= idxMax;
+	max = distBlocks[d];
+	if (!depChain) {
+	  idx = 0;
+	  for(j=0; j<max; j++) {
+	    lsum += buffer[idx].v;
+	    idx += idxIncr;
+	    if (idx >= idxMax) idx -= idxMax;
+	    //fprintf(stderr, " Off %d\n", idx);
+	  }
+	}
+	else {
+	  struct entry* p = buffer;
+	  for(j=0; j<max; j++) {
+	    lsum += p->v;
+	    p = p->next;
+	    //fprintf(stderr, " POff %d\n", (int)(p - buffer));
+	  }
 	}
       }
     }
@@ -130,8 +148,10 @@ char* prettyVal(char *s, unsigned long v)
     sprintf(s,  "%.1f G", 1.0 / 1024.0 / 1024.0 / 1024.0 * v);
   else if (v > 1000000)
     sprintf(s,  "%.1f M", 1.0 / 1024.0 / 1024.0 * v);
-  else
+  else if (v > 1000)
     sprintf(s,  "%.1f K", 1.0 / 1024.0 * v);
+  else
+    sprintf(s,  "%lu", v);
 
   return s;
 }
@@ -154,11 +174,12 @@ int main(int argc, char* argv[])
   int arg, d, i, j, k, idx;
   int iter = 0;
   int pseudoRandom = 0;
+  int depChain = 0;
   unsigned long aCount = 0;
   int blocks, blockDiff;
   double sum = 0.0;
   int t, tcount;
-  double* buffer[MAXTHREADS];
+  struct entry* buffer[MAXTHREADS];
   double tt;
 
   verbose = 1;  
@@ -167,6 +188,7 @@ int main(int argc, char* argv[])
       if (argv[arg][1] == 'h') usage(argv[0]);
       if (argv[arg][1] == 'v') { verbose++; continue; }
       if (argv[arg][1] == 'p') { pseudoRandom = 1; continue; }
+      if (argv[arg][1] == 'd') { depChain = 1; continue; }
       iter = toInt(argv[arg]+1, 0);
       if (iter == 0) usage(argv[0]);
       continue;
@@ -191,18 +213,7 @@ int main(int argc, char* argv[])
   tcount = 1;
 #endif
 
-  assert(tcount < MAXTHREADS);
-#pragma omp parallel for
-  for(t=0; t<tcount; t++) {
-    int idx;
-    // allocate and initialize used memory
-    buffer[t] = (double*) memalign(64, blocks * BLOCKLEN);
-    for(idx=0; idx< BLOCKLEN/sizeof(double) * blocks; idx++)
-      buffer[t][idx] = (double) idx;
-  }
-
   // calculate expected number of accesses
-
   aCount = 0;
   for(d=0; d<distsUsed; d++)
     aCount += distIter[d] * distBlocks[d];
@@ -218,9 +229,40 @@ int main(int argc, char* argv[])
 	    sBuf, tsBuf, BLOCKLEN * blockDiff);
     fprintf(stderr, "Accesses per iteration and thread: %s, total %s\n",
 	    acBuf, tacBuf);
-    fprintf(stderr, "Running %d iterations (%d threads) ...\n",
+    fprintf(stderr, "Iterations: %d, threads: %d\n",
 	    iter, tcount);
   }
+
+  assert(tcount < MAXTHREADS);
+  assert(sizeof(struct entry) == 16);
+#pragma omp parallel for
+  for(t=0; t<tcount; t++) {
+    struct entry *next, *buf;
+    int idx, blk, nextIdx;
+    int idxMax = blocks * BLOCKLEN/sizeof(struct entry);
+    int idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
+
+    // allocate and initialize used memory
+    buffer[t] = (struct entry*) memalign(64, blocks * BLOCKLEN);
+    buf = buffer[t];
+    for(idx=0; idx < idxMax; idx++) {
+      buf[idx].v = (double) idx;
+      buf[idx].next = 0;
+    }
+    // generate dependency chain
+    idx = 0;
+    for(blk=0; blk < blocks; blk++) {
+      nextIdx = idx + idxIncr;
+      if (nextIdx >= idxMax) nextIdx -= idxMax;
+      //fprintf(stderr, " Blk %d, POff %d\n", blk, nextIdx);
+      assert(buf[idx].next == 0);
+      buf[idx].next = buf + nextIdx;
+      idx = nextIdx;
+    }
+  }
+
+  if (verbose)
+    fprintf(stderr, "Running ...\n");
 
   aCount = 0;
   tt = wtime();
@@ -230,7 +272,7 @@ int main(int argc, char* argv[])
     double tsum = 0.0;
     unsigned long taCount = 0;
 
-    runBench(buffer[t], iter, blocks, blockDiff,
+    runBench(buffer[t], iter, blocks, blockDiff, depChain,
 	     &tsum, &taCount);
 
     sum += tsum;
