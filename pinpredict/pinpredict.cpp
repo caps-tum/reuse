@@ -134,10 +134,12 @@ void check(struct AddrPredict* p, Addr a)
 
 void afterExit(THREADID tid, UINT32 off, UINT32 next)
 {
+    //fprintf(stderr, "afterExit tid %d, off %d, next %d\n", tid, off, next);
+
 #if DEBUG_STATS
   tdata[tid]->predCounters[next-off]++;
-  if (off == next) return;
 #endif
+  if (off == next) return;
 
   struct AddrPredict* p = &(tdata[tid]->apreds[off]);
   while(1) {
@@ -349,7 +351,8 @@ VOID Trace(TRACE trace, VOID *v)
         }
 
         if (INS_IsBranchOrCall(BBL_InsTail(bbl))) {
-            AFUNPTR p = afterExitPtr(nextAPred-first);
+	    AFUNPTR p = afterExitPtr(nextAPred-first);
+	    //AFUNPTR p = (AFUNPTR)afterExit;
             if (p == (AFUNPTR) afterExit) {
                 BBL_InsertCall( bbl, IPOINT_TAKEN_BRANCH, p,
                                 IARG_THREAD_ID,
@@ -408,6 +411,7 @@ VOID Trace(TRACE trace, VOID *v)
                           IARG_UINT32, getExit(first, nextAPred, accStack),
                           IARG_END);
     }
+    //fprintf(stderr, "Processed Trace %lx\n", TRACE_Address(trace));
 }
 
 struct namesorter {
