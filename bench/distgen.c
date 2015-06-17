@@ -78,6 +78,7 @@ void usage(char* argv0)
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
 	  "  -d           travers by dependency chain\n"
+	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
 	  "  -v           be verbose\n", argv0);
   fprintf(stderr,
 	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
@@ -175,6 +176,7 @@ int main(int argc, char* argv[])
   int iter = 0;
   int pseudoRandom = 0;
   int depChain = 0;
+  int clockFreq = 2400;
   unsigned long aCount = 0;
   int blocks, blockDiff;
   double sum = 0.0;
@@ -189,6 +191,13 @@ int main(int argc, char* argv[])
       if (argv[arg][1] == 'v') { verbose++; continue; }
       if (argv[arg][1] == 'p') { pseudoRandom = 1; continue; }
       if (argv[arg][1] == 'd') { depChain = 1; continue; }
+      if (argv[arg][1] == 'c') {
+	if (arg+1<argc) {
+	  clockFreq = atoi(argv[arg+1]);
+	  arg++;
+	}
+	continue;
+      }
       iter = toInt(argv[arg]+1, 0);
       if (iter == 0) usage(argv[0]);
       continue;
@@ -282,6 +291,9 @@ int main(int argc, char* argv[])
   tt = wtime() - tt;
 
   if (verbose) {
+    double avg = tt * tcount / aCount * 1000000000.0;
+    double cTime = 1000.0 / clockFreq;
+
     fprintf(stderr, "Finished (ACount: %lu, sum: %g)\n", aCount, sum);
     fprintf(stderr, "Elapsed: %.3fs => %.3f GB/s, %.3f GF/s"
 	    " (per core: %.3f GB/s, %.3f GF/s)\n",
@@ -290,6 +302,8 @@ int main(int argc, char* argv[])
 	    aCount / tt / 1000000000.0,
 	    aCount * 64.0 / (tt * tcount) / 1000000000.0,
 	    aCount / (tt * tcount) / 1000000000.0 );
+    fprintf(stderr, " avg. time per access: %.3f ns (%.1f cycles @ %.1f GHz)\n",
+	    avg, avg/cTime, 1.0 / 1000.0 * clockFreq);
   }
 
   return 0;
