@@ -66,20 +66,21 @@ void initBufs(int blocks)
   }
 }
 
-void usage(char* argv0)
+void usage(char* argv0, int tcount)
 {
   fprintf(stderr,
 	  "Distance Generator\n"
 	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
 	  "\nParameters:\n"
 	  "  <iter>       number of times accessing arrays (def. 1000)\n"
-	  "  <dist1>, ... different reuse distances (def. 1 dist with 1MB)\n"
+	  "  <dist1>, ... different reuse distances (def. 1 dist with 16MB)\n"
 	  "\nOptions:\n"
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
 	  "  -d           travers by dependency chain\n"
 	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
-	  "  -v           be verbose\n", argv0);
+	  "  -t <count>   set number of threads to use (default: %d)\n"
+	  "  -v           be verbose\n", argv0, tcount);
   fprintf(stderr,
 	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
   exit(1);
@@ -180,14 +181,21 @@ int main(int argc, char* argv[])
   unsigned long aCount = 0;
   int blocks, blockDiff;
   double sum = 0.0;
-  int t, tcount;
+  int t, tcount = 0, tcount_def;
   struct entry* buffer[MAXTHREADS];
   double tt;
+
+#pragma omp parallel
+#ifdef _OPENMP
+  tcount_def = omp_get_num_threads();
+#else
+  tcount_def = 1;
+#endif
 
   verbose = 1;  
   for(arg=1; arg<argc; arg++) {
     if (argv[arg][0] == '-') {
-      if (argv[arg][1] == 'h') usage(argv[0]);
+      if (argv[arg][1] == 'h') usage(argv[0], tcount_def);
       if (argv[arg][1] == 'v') { verbose++; continue; }
       if (argv[arg][1] == 'p') { pseudoRandom = 1; continue; }
       if (argv[arg][1] == 'd') { depChain = 1; continue; }
@@ -198,16 +206,29 @@ int main(int argc, char* argv[])
 	}
 	continue;
       }
+      if (argv[arg][1] == 't') {
+        if (arg+1<argc) {
+          tcount = atoi(argv[arg+1]);
+          arg++;
+        }
+        continue;
+      }
       iter = toInt(argv[arg]+1, 0);
-      if (iter == 0) usage(argv[0]);
+      if (iter == 0) {
+	fprintf(stderr, "Error: expected iteration count, got '%s'\n", argv[arg]+1);
+	usage(argv[0], tcount_def);
+      }
       continue;
     }
     d = toInt(argv[arg], 1);
-    if (d <= 0) usage(argv[0]);
+    if (d <= 0) {
+      fprintf(stderr, "Error: expected distance, got '%s'\n", argv[arg]);
+      usage(argv[0], tcount_def);
+    }
     addDist(d);
   }
 
-  if (distsUsed == 0) addDist(1024*1024);
+  if (distsUsed == 0) addDist(16*1024*1024);
   if (iter == 0) iter = 1000;
 
   blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
@@ -215,12 +236,8 @@ int main(int argc, char* argv[])
   blocks = adjustSize(blocks, blockDiff);
   initBufs(blocks);
 
-#pragma omp parallel
-#ifdef _OPENMP
-  tcount = omp_get_num_threads();
-#else
-  tcount = 1;
-#endif
+  if (tcount == 0)
+    tcount = tcount_def;
 
   // calculate expected number of accesses
   aCount = 0;
