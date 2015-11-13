@@ -24,7 +24,7 @@ using namespace std;
 #define RD_VERBOSE 0
 
 // use minimal memory block element? Prohibits consistency checks
-#define MIN_BLOCKSTRUCT 0
+#define MIN_BLOCKSTRUCT 1
 
 
 //-------------------------------------------------------------------------
@@ -224,8 +224,8 @@ void RD_checkConsistency()
 void moveMarkers(int topBucket)
 {
   for(int b=1; b<=topBucket; b++) {
-    --buckets[b].marker;
-    (buckets[b].marker)->bucket++;
+    --buckets.at(b).marker;
+    (buckets.at(b).marker)->bucket++;
     if (RD_DEBUG)
       assert( (buckets[b].marker)->bucket == b );
   }
@@ -306,10 +306,10 @@ void RD_accessBlock(Addr a)
   buckets[bucket].aCount++;
 
   if (RD_DEBUG) {
-    // run consistency check every 1 million invocations
+    // run consistency check every 10 million invocations
     static int checkCount = 0;
     checkCount++;
-    if (checkCount > 1000000) {
+    if (checkCount > 10000000) {
       RD_checkConsistency();
       checkCount = 0;
     }
@@ -338,8 +338,7 @@ void RD_stat(unsigned long & stack_size, unsigned long & accessCount)
 int RD_get_hist(unsigned int b,
 		unsigned int & min, unsigned long & accessCount)
 {
-  if (RD_DEBUG)
-    RD_checkConsistency();
+  //if (RD_DEBUG) RD_checkConsistency();
 
   assert((b>=0) && (b < buckets.size()));
   min = buckets[b].min;
