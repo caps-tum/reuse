@@ -32,6 +32,7 @@
 #define MEMBLOCKLEN 64
 
 unsigned long stackAccesses;
+unsigned long ignoredReads, ignoredWrites;
 
 /* ===================================================================== */
 /* Command line options                                                  */
@@ -89,17 +90,31 @@ void memAccess(ADDRINT addr, UINT32 size)
   }
 }
 
-VOID memRead(ADDRINT addr, UINT32 size)
+VOID memRead(THREADID t, ADDRINT addr, UINT32 size)
 {
+  if (t > 0) {
+    // we are NOT thread-safe, ignore access
+    ignoredReads++;
+    return;
+  }
+
   if (VERBOSE >1)
     fprintf(stderr,"R %p/%d", (void*)addr, size);
+  
   memAccess(addr, size);
 }
 
-VOID memWrite(ADDRINT addr, UINT32 size)
+VOID memWrite(THREADID t, ADDRINT addr, UINT32 size)
 {
+  if (t > 0) {
+    // we are NOT thread-safe, ignore access
+    ignoredWrites++;
+    return;
+  }
+
   if (VERBOSE >1)
     fprintf(stderr,"W %p/%d", (void*)addr, size);
+  
   memAccess(addr, size);
 }
 
@@ -124,18 +139,28 @@ VOID Instruction(INS ins, VOID* v)
   for (UINT32 memOp = 0; memOp < memOperands; memOp++) {
     if (INS_MemoryOperandIsRead(ins, memOp))
       INS_InsertPredicatedCall( ins, IPOINT_BEFORE, (AFUNPTR)memRead,
+				IARG_THREAD_ID,
 				IARG_MEMORYOP_EA, memOp,
-        IARG_UINT32, INS_MemoryOperandSize(ins, memOp),
+				IARG_UINT32, INS_MemoryOperandSize(ins, memOp),
 				IARG_END);
 
     if (INS_MemoryOperandIsWritten(ins, memOp))
       INS_InsertPredicatedCall( ins, IPOINT_BEFORE, (AFUNPTR)memWrite,
+				IARG_THREAD_ID,
 				IARG_MEMORYOP_EA, memOp,
-        IARG_UINT32, INS_MemoryOperandSize(ins, memOp),
+				IARG_UINT32, INS_MemoryOperandSize(ins, memOp),
 				IARG_END);
   }
 }
 
+/* ===================================================================== */
+/* Callbacks from Pin                                                    */
+/* ===================================================================== */
+
+VOID ThreadStart(THREADID t, CONTEXT *ctxt, INT32 flags, VOID *v)
+{
+  fprintf(stderr, "Thread %d started\n", t);
+}
 
 /* ===================================================================== */
 /* Output results at exit                                                */
@@ -157,6 +182,10 @@ VOID Exit(INT32 code, VOID *v)
   fprintf(stderr,
 	  "%s  ignored stack accesses: %lu\n",
 	  pStr, stackAccesses);
+
+  fprintf(stderr,
+	  "%s  ignored accesses by thread != 0: %lu reads, %lu writes\n",
+	  pStr, ignoredReads, ignoredWrites);
 }
 
 /* ===================================================================== */
@@ -189,6 +218,7 @@ int main (int argc, char *argv[])
   PIN_InitSymbols();
   INS_AddInstrumentFunction(Instruction, 0);
   PIN_AddFiniFunction(Exit, 0);
+  PIN_AddThreadStartFunction(ThreadStart, 0);
   
   PIN_StartProgram();
   return 0;	
