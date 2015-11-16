@@ -1,3 +1,20 @@
+/**
+ * Distgen
+ * Multi-threaded memory access pattern generator
+ *
+ * Every thread traverses its own nested series of arrays
+ * with array sizes as specified. Array sizes correlate
+ * to distances in a reuse distance histogram, and fit into
+ * given layers (caches) of the memory hierarchy.
+ * The idea is to approximate the access pattern of real codes.
+ *
+ * Copyright 2015 by LRR-TUM
+ * Josef Weidendorfer <weidendo@in.tum.de>
+ *
+ * Licensed under GNU General Public License 2.0 or later.
+ * Some rights reserved. See LICENSE
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -153,11 +170,13 @@ char* prettyVal(char *s, unsigned long v)
   static char str[20];
 
   if (!s) s = str;
-  if (v > 1000000000)
+  if (v > 1000000000000ul)
+    sprintf(s,  "%.1f T", 1.0 / 1024.0 / 1024.0 / 1024.0 /1024.0 * v);
+  else if (v > 1000000000ul)
     sprintf(s,  "%.1f G", 1.0 / 1024.0 / 1024.0 / 1024.0 * v);
-  else if (v > 1000000)
+  else if (v > 1000000ul)
     sprintf(s,  "%.1f M", 1.0 / 1024.0 / 1024.0 * v);
-  else if (v > 1000)
+  else if (v > 1000ul)
     sprintf(s,  "%.1f K", 1.0 / 1024.0 * v);
   else
     sprintf(s,  "%lu", v);
@@ -183,15 +202,13 @@ void printStats(int ii, double tDiff, unsigned long aDiff)
   double avg = tDiff * tcount / aDiff * 1000000000.0;
   double cTime = 1000.0 / clockFreq;
 
-  fprintf(stderr, "At %4d: ", ii);
+  fprintf(stderr, "At %5d: ", ii);
   fprintf(stderr,
-	  " %5.3fs => %5.3f GB/s, %5.3f GF/s"
-	  " (per core: %5.3f GB/s, %5.3f GF/s)\n",
-	  tDiff,
+	  " %5.3fs for %4.1f GB => %5.3f GB/s"
+	  " (per core: %6.3f GB/s)\n",
+	  tDiff, aDiff * 64.0 / 1000000000.0,
 	  aDiff * 64.0 / tDiff / 1000000000.0,
-	  aDiff / tDiff / 1000000000.0,
-	  aDiff * 64.0 / (tDiff * tcount) / 1000000000.0,
-	  aDiff / (tDiff * tcount) / 1000000000.0 );
+	  aDiff * 64.0 / (tDiff * tcount) / 1000000000.0);
   if (verbose>1)
     fprintf(stderr, "  per access (%lu accesses): %.3f ns (%.1f cycles @ %.1f GHz)\n",
 	    aDiff, avg, avg/cTime, 1.0 / 1000.0 * clockFreq);
@@ -282,16 +299,17 @@ int main(int argc, char* argv[])
     aCount += distIter[d] * distBlocks[d];
 
   if (verbose) {
-    char sBuf[20], tsBuf[20], acBuf[20], tacBuf[20];
+    char sBuf[20], tsBuf[20], acBuf[20], tacBuf[20], tasBuf[20];
     prettyVal(sBuf, BLOCKLEN * blocks);
     prettyVal(tsBuf, BLOCKLEN * blocks * tcount);
     prettyVal(acBuf, aCount);
     prettyVal(tacBuf, aCount * tcount * iter);
+    prettyVal(tasBuf, aCount * tcount * iter * 64.0);
 
     fprintf(stderr, "Buffer size per thread %sB (total %sB), address diff %d\n",
 	    sBuf, tsBuf, BLOCKLEN * blockDiff);
-    fprintf(stderr, "Accesses per iteration and thread: %s, total %s\n",
-	    acBuf, tacBuf);
+    fprintf(stderr, "Accesses per iteration and thread: %s (total %s accs = %sB)\n",
+	    acBuf, tacBuf, tasBuf);
     fprintf(stderr, "Iterations: %d, threads: %d\n",
 	    iter, tcount);
   }
