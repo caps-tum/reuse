@@ -88,27 +88,6 @@ void initBufs(int blocks)
   }
 }
 
-void usage(char* argv0, int tcount)
-{
-  fprintf(stderr,
-	  "Multi-threaded Distance Generator\n"
-	  "Threads access own nested arrays at cache-line granularity\n\n"
-	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
-	  "\nParameters:\n"
-	  "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
-	  "  <dist1>, ... different reuse distances (def: 1 dist with 16MB)\n"
-	  "\nOptions:\n"
-	  "  -h           show this help\n"
-	  "  -p           use pseudo-random access pattern\n"
-	  "  -d           travers by dependency chain\n"
-	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
-	  "  -t <count>   set number of threads to use (def: %d)\n"
-	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
-	  "  -v           be verbose\n", argv0, tcount);
-  fprintf(stderr,
-	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
-  exit(1);
-}
 
 // helper for adjustSize
 int gcd(int a, int b)
@@ -214,6 +193,45 @@ void printStats(int ii, double tDiff, unsigned long aDiff)
 	    aDiff, avg, avg/cTime, 1.0 / 1000.0 * clockFreq);
 }
 
+int get_tcount()
+{
+  static int tc = 0;
+
+  if (tc>0) return tc;
+
+#pragma omp parallel
+#ifdef _OPENMP
+  tc = omp_get_num_threads();
+#else
+  tc = 1;
+#endif
+
+  return tc;
+}
+
+void usage(char* argv0)
+{
+  fprintf(stderr,
+	  "Multi-threaded Distance Generator\n"
+	  "Threads access own nested arrays at cache-line granularity\n\n"
+	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
+	  "\nParameters:\n"
+	  "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
+	  "  <dist1>, ... different reuse distances (def: 1 dist with 16MB)\n"
+	  "\nOptions:\n"
+	  "  -h           show this help\n"
+	  "  -p           use pseudo-random access pattern\n"
+	  "  -d           travers by dependency chain\n"
+	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
+	  "  -t <count>   set number of threads to use (def: %d)\n"
+	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
+	  "  -v           be verbose\n", argv0, get_tcount());
+  fprintf(stderr,
+	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
+  exit(1);
+}
+
+
 int main(int argc, char* argv[])
 {
   int arg, d, i, j, k, idx;
@@ -223,21 +241,14 @@ int main(int argc, char* argv[])
   unsigned long aCount = 0, aCount1;
   int blocks, blockDiff;
   double sum = 0.0;
-  int t, tcount_def;
+  int t;
   struct entry* buffer[MAXTHREADS];
   double tt, t1, t2;
-
-#pragma omp parallel
-#ifdef _OPENMP
-  tcount_def = omp_get_num_threads();
-#else
-  tcount_def = 1;
-#endif
 
   verbose = 1;
   for(arg=1; arg<argc; arg++) {
     if (argv[arg][0] == '-') {
-      if (argv[arg][1] == 'h') usage(argv[0], tcount_def);
+      if (argv[arg][1] == 'h') usage(argv[0]);
       if (argv[arg][1] == 'v') { verbose++; continue; }
       if (argv[arg][1] == 'p') { pseudoRandom = 1; continue; }
       if (argv[arg][1] == 'd') { depChain = 1; continue; }
@@ -265,14 +276,14 @@ int main(int argc, char* argv[])
       iter = toInt(argv[arg]+1, 0);
       if (iter == 0) {
 	fprintf(stderr, "Error: expected iteration count, got '%s'\n", argv[arg]+1);
-	usage(argv[0], tcount_def);
+	usage(argv[0]);
       }
       continue;
     }
     d = toInt(argv[arg], 1);
     if (d <= 0) {
       fprintf(stderr, "Error: expected distance, got '%s'\n", argv[arg]);
-      usage(argv[0], tcount_def);
+      usage(argv[0]);
     }
     addDist(d);
   }
@@ -286,7 +297,12 @@ int main(int argc, char* argv[])
   initBufs(blocks);
 
   if (tcount == 0)
-    tcount = tcount_def;
+    tcount = get_tcount();
+  else {
+#ifdef _OPENMP
+    omp_set_num_threads(tcount);
+#endif
+  }
 
   if (iters_perstat == 0) {
     // no intermediate output
