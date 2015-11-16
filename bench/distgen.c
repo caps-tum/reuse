@@ -20,8 +20,13 @@ struct entry {
 int distSize[MAXDISTCOUNT];
 int distIter[MAXDISTCOUNT];
 int distBlocks[MAXDISTCOUNT];
+
+// options
 int distsUsed = 0;
 int verbose = 0;
+int iters_perstat = 0;
+int tcount = 0;       // number of threads to use
+int clockFreq = 2400; // assumed frequency for printing cycles
 
 double wtime()
 {
@@ -69,17 +74,19 @@ void initBufs(int blocks)
 void usage(char* argv0, int tcount)
 {
   fprintf(stderr,
-	  "Distance Generator\n"
+	  "Multi-threaded Distance Generator\n"
+	  "Threads access own nested arrays at cache-line granularity\n\n"
 	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
 	  "\nParameters:\n"
-	  "  <iter>       number of times accessing arrays (def. 1000)\n"
-	  "  <dist1>, ... different reuse distances (def. 1 dist with 16MB)\n"
+	  "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
+	  "  <dist1>, ... different reuse distances (def: 1 dist with 16MB)\n"
 	  "\nOptions:\n"
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
 	  "  -d           travers by dependency chain\n"
 	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
-	  "  -t <count>   set number of threads to use (default: %d)\n"
+	  "  -t <count>   set number of threads to use (def: %d)\n"
+	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
 	  "  -v           be verbose\n", argv0, tcount);
   fprintf(stderr,
 	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
@@ -171,19 +178,37 @@ int toInt(char* s, int isSize)
   return d;
 }
 
+void printStats(int ii, double tDiff, unsigned long aDiff)
+{
+  double avg = tDiff * tcount / aDiff * 1000000000.0;
+  double cTime = 1000.0 / clockFreq;
+
+  fprintf(stderr, "At %4d: ", ii);
+  fprintf(stderr,
+	  " %5.3fs => %5.3f GB/s, %5.3f GF/s"
+	  " (per core: %5.3f GB/s, %5.3f GF/s)\n",
+	  tDiff,
+	  aDiff * 64.0 / tDiff / 1000000000.0,
+	  aDiff / tDiff / 1000000000.0,
+	  aDiff * 64.0 / (tDiff * tcount) / 1000000000.0,
+	  aDiff / (tDiff * tcount) / 1000000000.0 );
+  if (verbose>1)
+    fprintf(stderr, "  per access (%lu accesses): %.3f ns (%.1f cycles @ %.1f GHz)\n",
+	    aDiff, avg, avg/cTime, 1.0 / 1000.0 * clockFreq);
+}
+
 int main(int argc, char* argv[])
 {
   int arg, d, i, j, k, idx;
-  int iter = 0;
+  int iter = 0, ii;
   int pseudoRandom = 0;
   int depChain = 0;
-  int clockFreq = 2400;
-  unsigned long aCount = 0;
+  unsigned long aCount = 0, aCount1;
   int blocks, blockDiff;
   double sum = 0.0;
-  int t, tcount = 0, tcount_def;
+  int t, tcount_def;
   struct entry* buffer[MAXTHREADS];
-  double tt;
+  double tt, t1, t2;
 
 #pragma omp parallel
 #ifdef _OPENMP
@@ -192,7 +217,7 @@ int main(int argc, char* argv[])
   tcount_def = 1;
 #endif
 
-  verbose = 1;  
+  verbose = 1;
   for(arg=1; arg<argc; arg++) {
     if (argv[arg][0] == '-') {
       if (argv[arg][1] == 'h') usage(argv[0], tcount_def);
@@ -209,6 +234,13 @@ int main(int argc, char* argv[])
       if (argv[arg][1] == 't') {
         if (arg+1<argc) {
           tcount = atoi(argv[arg+1]);
+          arg++;
+        }
+        continue;
+      }
+      if (argv[arg][1] == 's') {
+        if (arg+1<argc) {
+	  iters_perstat = atoi(argv[arg+1]);
           arg++;
         }
         continue;
@@ -238,6 +270,11 @@ int main(int argc, char* argv[])
 
   if (tcount == 0)
     tcount = tcount_def;
+
+  if (iters_perstat == 0) {
+    // no intermediate output
+    iters_perstat = iter;
+  }
 
   // calculate expected number of accesses
   aCount = 0;
@@ -288,24 +325,38 @@ int main(int argc, char* argv[])
   }
 
   if (verbose)
-    fprintf(stderr, "Running ...\n");
+    fprintf(stderr, "Running ... (printing statistics every %d iterations)\n",
+	    iters_perstat);
 
   aCount = 0;
   tt = wtime();
+  t1 = tt;
+  ii = 0;
+  // loop over chunks of iterations after which statistics are printed
+  while(1) {
+    aCount1 = aCount;
 
 #pragma omp parallel for reduction(+:sum) reduction(+:aCount)
-  for(t=0; t<tcount; t++) {
-    double tsum = 0.0;
-    unsigned long taCount = 0;
+    for(t=0; t<tcount; t++) {
+      double tsum = 0.0;
+      unsigned long taCount = 0;
 
-    runBench(buffer[t], iter, blocks, blockDiff, depChain,
-	     &tsum, &taCount);
+      runBench(buffer[t], iters_perstat, blocks, blockDiff, depChain,
+	       &tsum, &taCount);
 
-    sum += tsum;
-    aCount += taCount;
+      sum += tsum;
+      aCount += taCount;
+    }
+
+    t2 = wtime();
+    ii += iters_perstat;
+    if (ii >= iter) break;
+
+    printStats(ii, t2-t1, aCount - aCount1);
+
+    t1 = t2;
   }
-
-  tt = wtime() - tt;
+  tt = t2 - tt;
 
   if (verbose) {
     double avg = tt * tcount / aCount * 1000000000.0;
