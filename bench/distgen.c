@@ -104,14 +104,17 @@ int adjustSize(int size, int diff)
 }
 
 void runBench(struct entry* buffer,
-	      int iter, int blocks, int blockDiff, int depChain,
+	      int iter, int blocks, int blockDiff,
+	      int depChain, int doWrite,
 	      double* sum, unsigned long* aCount)
 {
   int i, d, k, j, idx, max;
-  double lsum = *sum;
+  double lsum, v;
   int idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
   int idxMax = blocks * BLOCKLEN/sizeof(struct entry);
+  int benchType = depChain + 2*doWrite;
 
+  lsum = *sum;
   for(i=0; i<iter; i++) {
     lsum += buffer[0].v;
     for(d=0; d<distsUsed; d++) {
@@ -120,7 +123,9 @@ void runBench(struct entry* buffer,
 	//fprintf(stderr, "D %d, I %d\n", d, k);
 	*aCount += distBlocks[d];
 	max = distBlocks[d];
-	if (!depChain) {
+	
+	switch(benchType) {
+	case 0: // no dep chain, no write
 	  idx = 0;
 	  for(j=0; j<max; j++) {
 	    lsum += buffer[idx].v;
@@ -128,14 +133,43 @@ void runBench(struct entry* buffer,
 	    if (idx >= idxMax) idx -= idxMax;
 	    //fprintf(stderr, " Off %d\n", idx);
 	  }
-	}
-	else {
-	  struct entry* p = buffer;
-	  for(j=0; j<max; j++) {
-	    lsum += p->v;
-	    p = p->next;
-	    //fprintf(stderr, " POff %d\n", (int)(p - buffer));
+	  break;
+	  
+	case 1: // dep chain, no write
+	  {
+	    struct entry* p = buffer;
+	    for(j=0; j<max; j++) {
+	      lsum += p->v;
+	      p = p->next;
+	      //fprintf(stderr, " POff %d\n", (int)(p - buffer));
+	    }
 	  }
+	  break;
+	  
+	case 2: // no dep chain, write
+	  idx = 0;
+	  for(j=0; j<max; j++) {
+	    buffer[idx].v += 1.0;
+	    lsum += buffer[idx].v;
+	    idx += idxIncr;
+	    if (idx >= idxMax) idx -= idxMax;
+	    //fprintf(stderr, " Off %d\n", idx);
+	  }
+	  break;
+	  
+	case 3: // dep chain, write
+	  {
+	    struct entry* p = buffer;
+	    for(j=0; j<max; j++) {
+	      p->v += 1.0;
+	      lsum += p->v;
+	      p->v = v;
+	      p = p->next;
+	      //fprintf(stderr, " POff %d\n", (int)(p - buffer));
+	    }
+	  }
+	  break;
+	default: assert(0);
 	}
       }
     }
@@ -176,8 +210,10 @@ int toInt(char* s, int isSize)
   return d;
 }
 
-void printStats(int ii, double tDiff, unsigned long aDiff)
+void printStats(int ii, double tDiff,
+		unsigned long rDiff, unsigned long wDiff)
 {
+  unsigned long aDiff = rDiff + wDiff;
   double avg = tDiff * tcount / aDiff * 1000000000.0;
   double cTime = 1000.0 / clockFreq;
 
@@ -221,7 +257,8 @@ void usage(char* argv0)
 	  "\nOptions:\n"
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
-	  "  -d           travers by dependency chain\n"
+	  "  -d           traversal by dependency chain\n"
+	  "  -w           write after read on traversal\n"
 	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
 	  "  -t <count>   set number of threads to use (def: %d)\n"
 	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
@@ -238,6 +275,7 @@ int main(int argc, char* argv[])
   int iter = 0, ii;
   int pseudoRandom = 0;
   int depChain = 0;
+  int doWrite = 0;
   unsigned long aCount = 0, aCount1;
   int blocks, blockDiff;
   double sum = 0.0;
@@ -252,9 +290,10 @@ int main(int argc, char* argv[])
       if (argv[arg][1] == 'v') { verbose++; continue; }
       if (argv[arg][1] == 'p') { pseudoRandom = 1; continue; }
       if (argv[arg][1] == 'd') { depChain = 1; continue; }
+      if (argv[arg][1] == 'w') { doWrite = 1; continue; }
       if (argv[arg][1] == 'c') {
 	if (arg+1<argc) {
-	  clockFreq = atoi(argv[arg+1]);
+	  clockFreq = toInt(argv[arg+1], 0);
 	  arg++;
 	}
 	continue;
@@ -268,7 +307,7 @@ int main(int argc, char* argv[])
       }
       if (argv[arg][1] == 's') {
         if (arg+1<argc) {
-	  iters_perstat = atoi(argv[arg+1]);
+	  iters_perstat = toInt(argv[arg+1], 0);
           arg++;
         }
         continue;
@@ -375,8 +414,8 @@ int main(int argc, char* argv[])
       double tsum = 0.0;
       unsigned long taCount = 0;
 
-      runBench(buffer[t], iters_perstat, blocks, blockDiff, depChain,
-	       &tsum, &taCount);
+      runBench(buffer[t], iters_perstat, blocks, blockDiff,
+	       depChain, doWrite, &tsum, &taCount);
 
       sum += tsum;
       aCount += taCount;
@@ -386,16 +425,19 @@ int main(int argc, char* argv[])
     ii += iters_perstat;
     if (ii >= iter) break;
 
-    printStats(ii, t2-t1, aCount - aCount1);
+    printStats(ii, t2-t1, aCount - aCount1, doWrite ? (aCount - aCount1) : 0);
 
     t1 = t2;
   }
   tt = t2 - tt;
 
   if (verbose) {
-    double avg = tt * tcount / aCount * 1000000000.0;
-    double cTime = 1000.0 / clockFreq;
+    double avg, cTime;
 
+    if (doWrite) aCount = 2 * aCount;
+    avg = tt * tcount / aCount * 1000000000.0;
+    cTime = 1000.0 / clockFreq;  
+    
     fprintf(stderr, "Finished (ACount: %lu, sum: %g)\n", aCount, sum);
     fprintf(stderr, "Elapsed: %.3fs => %.3f GB/s, %.3f GF/s"
 	    " (per core: %.3f GB/s, %.3f GF/s)\n",
