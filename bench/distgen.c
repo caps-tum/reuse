@@ -200,14 +200,15 @@ char* prettyVal(char *s, unsigned long v)
 int toInt(char* s, int isSize)
 {
   char* end;
-  int d;
-  int f = isSize ? 1024 : 1000;
+  double v, f;
 
-  d = strtol(s, &end, 10);
-  if ((*end == 'k') || (*end == 'K')) d = d * f;
-  else if ((*end == 'm') || (*end == 'M')) d = d * f * f;
-  else if ((*end == 'g') || (*end == 'G')) d = d * f * f * f;
-  return d;
+  f = isSize ? 1024.0 : 1000.0;
+  v = strtof(s, &end);
+  if ((*end == 'k') || (*end == 'K'))      v = v * f;
+  else if ((*end == 'm') || (*end == 'M')) v = v * f * f;
+  else if ((*end == 'g') || (*end == 'G')) v = v * f * f * f;
+
+  return (int) v;
 }
 
 void printStats(int ii, double tDiff,
@@ -258,10 +259,10 @@ void usage(char* argv0)
 	  "  -p           use pseudo-random access pattern\n"
 	  "  -d           traversal by dependency chain\n"
 	  "  -w           write after read on traversal\n"
-	  "  -c <MHz>     provide clock frequency to show cycles per access\n"
+	  "  -c <MHz>     clock frequency in MHz to show cycles per access (def: %d)\n"
 	  "  -t <count>   set number of threads to use (def: %d)\n"
 	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
-	  "  -v           be verbose\n", argv0, get_tcount());
+	  "  -v           be verbose\n", argv0, clockFreq, get_tcount());
   fprintf(stderr,
 	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
   exit(1);
