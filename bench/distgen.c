@@ -40,12 +40,18 @@ u64 distSize[MAXDISTCOUNT];
 u64 distBlocks[MAXDISTCOUNT];
 int distIter[MAXDISTCOUNT];
 
-// options
+// options (to be reset to default if 0)
 int distsUsed = 0;
 int verbose = 0;
 int iters_perstat = 0;
 int tcount = 0;       // number of threads to use
 u64 clockFreq = 0;    // assumed frequency for printing cycles
+int pseudoRandom = 0;
+int depChain = 0;
+int doWrite = 0;
+int iter = 0;
+
+// defaults
 char* clockFreqDef = "2.4G";
 
 double wtime()
@@ -73,7 +79,7 @@ void addDist(u64 size)
   distsUsed++;
 }
 
-void initBufs(u64 blocks)
+void initBufs()
 {
   int d;
 
@@ -273,8 +279,8 @@ void usage(char* argv0)
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
 	  "  -d           traversal by dependency chain\n"
-	  "  -w           write after read on traversal\n"
-	  "  -c           clock frequency in Hz to show cycles per access (def: %s)\n"
+	  "  -w           write after read on each access\n"
+	  "  -c <freq>    clock frequency in Hz to show cycles per access (def: %s)\n"
 	  "  -t <count>   set number of threads to use (def: %d)\n"
 	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
 	  "  -v           be verbose\n", argv0, clockFreqDef, get_tcount());
@@ -283,23 +289,12 @@ void usage(char* argv0)
   exit(1);
 }
 
-
-int main(int argc, char* argv[])
+// this sets global options
+void parseOptions(char argc, char* argv[])
 {
-  int arg, i, j, k, d;
-  int iter = 0, ii;
-  int pseudoRandom = 0;
-  int depChain = 0;
-  int doWrite = 0;
-  u64 aCount = 0, aCount1;
-  u64 dist, blocks, blockDiff;
-  double sum = 0.0;
-  int t;
-  struct entry* buffer[MAXTHREADS];
-  double tt, t1, t2;
-  double avg, cTime, gData, gFlops, flopsPA;
+  int arg;
+  u64 dist;
 
-  verbose = 0;
   for(arg=1; arg<argc; arg++) {
     if (argv[arg][0] == '-') {
       if (argv[arg][1] == 'h') usage(argv[0]);
@@ -330,7 +325,8 @@ int main(int argc, char* argv[])
       }
       iter = (int) toU64(argv[arg]+1, 0);
       if (iter == 0) {
-	fprintf(stderr, "ERROR: expected iteration count, got '%s'\n", argv[arg]+1);
+	fprintf(stderr, "ERROR: expected iteration count, got '%s'\n",
+		argv[arg]+1);
 	usage(argv[0]);
       }
       continue;
@@ -343,8 +339,7 @@ int main(int argc, char* argv[])
     addDist(dist);
   }
 
-  if (verbose)
-    fprintf(stderr, "Multi-threaded Distance Generator (C) 2015 LRR-TUM\n");
+  // set to defaults if values were not provided
   
   if (distsUsed == 0) addDist(16*1024*1024);
   if (iter == 0) iter = 1000;
@@ -373,10 +368,30 @@ int main(int argc, char* argv[])
     iters_perstat = iter;
   }
 
+
+}
+
+int main(int argc, char* argv[])
+{
+  int i, j, k, d;
+  int ii;
+  u64 aCount = 0, aCount1;
+  u64 blocks, blockDiff;
+  double sum = 0.0;
+  int t;
+  struct entry* buffer[MAXTHREADS];
+  double tt, t1, t2;
+  double avg, cTime, gData, gFlops, flopsPA;
+
+  parseOptions(argc, argv);
+
+  if (verbose)
+    fprintf(stderr, "Multi-threaded Distance Generator (C) 2015 LRR-TUM\n");
+
   blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
   blockDiff = pseudoRandom ? (blocks * 7/17) : 1;
   blocks = adjustSize(blocks, blockDiff);
-  initBufs(blocks);
+  initBufs();
 
   // calculate expected number of accesses
   aCount = 0;
@@ -401,6 +416,11 @@ int main(int argc, char* argv[])
 
   assert(tcount < MAXTHREADS);
   assert(sizeof(struct entry) == 16);
+
+  //--------------------------
+  // Initialization
+  //--------------------------
+
 #pragma omp parallel for
   for(t=0; t<tcount; t++) {
     struct entry *next, *buf;
@@ -427,9 +447,15 @@ int main(int argc, char* argv[])
     }
   }
 
-  fprintf(stderr, "Running %d iterations, %d thread(s) ...\n", iter, tcount);
+  //--------------------------
+  // Run benchmark
+  //--------------------------
+
+  fprintf(stderr, "Running %d iterations, %d thread(s) ...\n",
+	  iter, tcount);
   if (verbose)
-    fprintf(stderr, "  printing statistics every %d iterations\n", iters_perstat);
+    fprintf(stderr, "  printing statistics every %d iterations\n",
+	    iters_perstat);
 
   aCount = 0;
   tt = wtime();
@@ -487,7 +513,6 @@ int main(int argc, char* argv[])
   
   if (verbose)
     fprintf(stderr, "         accesses   %llu, sum: %g\n", aCount, sum);
-
 
   return 0;
 }
