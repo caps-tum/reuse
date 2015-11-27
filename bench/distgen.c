@@ -81,9 +81,9 @@ void initBufs(int blocks)
   }
 
   if (verbose) {
-    fprintf(stderr, "Number of distances: %d\n", distsUsed);
+    fprintf(stderr, "  number of distances: %d\n", distsUsed);
     for(d=0; d<distsUsed; d++)
-      fprintf(stderr, "  D%2d: size %d (iter %d)\n",
+      fprintf(stderr, "    D%2d: size %d (%d traversals per iteration)\n",
       	d+1, distSize[d], distIter[d]);
   }
 }
@@ -217,7 +217,7 @@ void printStats(int ii, double tDiff,
   double avg = tDiff * tcount / aDiff * 1000000000.0;
   double cTime = 1000.0 / clockFreq;
 
-  fprintf(stderr, "At %5d: ", ii);
+  fprintf(stderr, " at%5d: ", ii);
   fprintf(stderr,
 	  " %5.3fs for %4.1f GB => %5.3f GB/s"
 	  " (per core: %6.3f GB/s)\n",
@@ -248,8 +248,7 @@ int get_tcount()
 void usage(char* argv0)
 {
   fprintf(stderr,
-	  "Multi-threaded Distance Generator\n"
-	  "Threads access own nested arrays at cache-line granularity\n\n"
+	  "Benchmark with threads accessing their own nested arrays at cache-line granularity\n\n"
 	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
 	  "\nParameters:\n"
 	  "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
@@ -282,8 +281,9 @@ int main(int argc, char* argv[])
   int t;
   struct entry* buffer[MAXTHREADS];
   double tt, t1, t2;
+  double avg, cTime, gData, gFlops, flopsPA;
 
-  verbose = 1;
+  verbose = 0;
   for(arg=1; arg<argc; arg++) {
     if (argv[arg][0] == '-') {
       if (argv[arg][1] == 'h') usage(argv[0]);
@@ -314,39 +314,52 @@ int main(int argc, char* argv[])
       }
       iter = toInt(argv[arg]+1, 0);
       if (iter == 0) {
-	fprintf(stderr, "Error: expected iteration count, got '%s'\n", argv[arg]+1);
+	fprintf(stderr, "ERROR: expected iteration count, got '%s'\n", argv[arg]+1);
 	usage(argv[0]);
       }
       continue;
     }
     d = toInt(argv[arg], 1);
     if (d <= 0) {
-      fprintf(stderr, "Error: expected distance, got '%s'\n", argv[arg]);
+      fprintf(stderr, "ERROR: expected distance, got '%s'\n", argv[arg]);
       usage(argv[0]);
     }
     addDist(d);
   }
 
+  if (verbose)
+    fprintf(stderr, "Multi-threaded Distance Generator (C) 2015 LRR-TUM\n");
+  
   if (distsUsed == 0) addDist(16*1024*1024);
   if (iter == 0) iter = 1000;
+
+  if (tcount == 0) {
+    // thread count is the default as given by OpenMP runtime
+    tcount = get_tcount();
+  }
+  else {
+    // overwrite thread count of OpenMP runtime
+#ifdef _OPENMP
+    omp_set_num_threads(tcount);
+#else
+    // compiled without OpenMP, cannot use more than 1 thread
+    if (tcount > 1) {
+      fprintf(stderr, "WARNING: OpenMP not available, running sequentially.\n");
+      tcount = 1;
+    }
+#endif
+  }
+  
+  if (iters_perstat == 0) {
+    // no intermediate output
+    iters_perstat = iter;
+  }
 
   blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
   blockDiff = pseudoRandom ? (blocks * 7/17) : 1;
   blocks = adjustSize(blocks, blockDiff);
   initBufs(blocks);
 
-  if (tcount == 0)
-    tcount = get_tcount();
-  else {
-#ifdef _OPENMP
-    omp_set_num_threads(tcount);
-#endif
-  }
-
-  if (iters_perstat == 0) {
-    // no intermediate output
-    iters_perstat = iter;
-  }
 
   // calculate expected number of accesses
   aCount = 0;
@@ -361,12 +374,10 @@ int main(int argc, char* argv[])
     prettyVal(tacBuf, aCount * tcount * iter);
     prettyVal(tasBuf, aCount * tcount * iter * 64.0);
 
-    fprintf(stderr, "Buffer size per thread %sB (total %sB), address diff %d\n",
+    fprintf(stderr, "  buffer size per thread %sB (total %sB), address diff %d\n",
 	    sBuf, tsBuf, BLOCKLEN * blockDiff);
-    fprintf(stderr, "Accesses per iteration and thread: %s (total %s accs = %sB)\n",
+    fprintf(stderr, "  accesses per iteration and thread: %s (total %s accs = %sB)\n",
 	    acBuf, tacBuf, tasBuf);
-    fprintf(stderr, "Iterations: %d, threads: %d\n",
-	    iter, tcount);
   }
 
   assert(tcount < MAXTHREADS);
@@ -397,9 +408,9 @@ int main(int argc, char* argv[])
     }
   }
 
+  fprintf(stderr, "Running %d iterations, %d thread(s) ...\n", iter, tcount);
   if (verbose)
-    fprintf(stderr, "Running ... (printing statistics every %d iterations)\n",
-	    iters_perstat);
+    fprintf(stderr, "  printing statistics every %d iterations\n", iters_perstat);
 
   aCount = 0;
   tt = wtime();
@@ -431,24 +442,33 @@ int main(int argc, char* argv[])
   }
   tt = t2 - tt;
 
-  if (verbose) {
-    double avg, cTime;
+  //--------------------------
+  // Summary
+  //--------------------------
 
-    if (doWrite) aCount = 2 * aCount;
-    avg = tt * tcount / aCount * 1000000000.0;
-    cTime = 1000.0 / clockFreq;  
-    
-    fprintf(stderr, "Finished (ACount: %lu, sum: %g)\n", aCount, sum);
-    fprintf(stderr, "Elapsed: %.3fs => %.3f GB/s, %.3f GF/s"
-	    " (per core: %.3f GB/s, %.3f GF/s)\n",
-	    tt,
-	    aCount * 64.0 / tt / 1000000000.0,
-	    aCount / tt / 1000000000.0,
-	    aCount * 64.0 / (tt * tcount) / 1000000000.0,
-	    aCount / (tt * tcount) / 1000000000.0 );
-    fprintf(stderr, " avg. time per access: %.3f ns (%.1f cycles @ %.1f GHz)\n",
-	    avg, avg/cTime, 1.0 / 1000.0 * clockFreq);
+  flopsPA = 1.0;
+  if (doWrite) {
+    aCount = 2 * aCount;
+    flopsPA = .5;
   }
+
+  avg = tt * tcount / aCount * 1000000000.0;
+  cTime = 1000.0 / clockFreq;  
+  gData = aCount * 64.0 / 1024.0 / 1024.0 / 1024.0;
+  gFlops = aCount * flopsPA / 1000000000.0;
+
+  fprintf(stderr, "Summary: throughput %7.3f GB in %.3f s (per core: %.3f GB)\n",
+	  gData, tt, gData / tcount);
+  fprintf(stderr, "         bandwidth  %7.3f GB/s (per core: %.3f GB/s)\n",
+	  gData / tt, gData / tt / tcount);
+  fprintf(stderr, "         GFlop/s    %7.3f GF/s (per core: %.3f GF/s)\n",
+	  gFlops / tt, gFlops / tt / tcount);
+  fprintf(stderr, "         per acc.   %7.3f ns   (%.1f cycles @ %.1f GHz) - \n",
+	  avg, avg/cTime, 1.0 / 1000.0 * clockFreq);
+  
+  if (verbose)
+    fprintf(stderr, "         accesses   %lu, sum: %g\n", aCount, sum);
+
 
   return 0;
 }
