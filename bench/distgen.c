@@ -194,24 +194,23 @@ char* prettyVal(char *s, u64 v)
 
   if (!s) s = str;
   if (v > 1000000000000ull)
-    sprintf(s,  "%.1f T", 1.0 / 1024.0 / 1024.0 / 1024.0 /1024.0 * v);
+    sprintf(s,  "%.1f T", 1.0 / 1000000.0 / 1000000.0 * v);
   else if (v > 1000000000ull)
-    sprintf(s,  "%.1f G", 1.0 / 1024.0 / 1024.0 / 1024.0 * v);
+    sprintf(s,  "%.1f G", 1.0 / 1000000000.0 * v);
   else if (v > 1000000ull)
-    sprintf(s,  "%.1f M", 1.0 / 1024.0 / 1024.0 * v);
+    sprintf(s,  "%.1f M", 1.0 / 1000000.0 * v);
   else if (v > 1000ull)
-    sprintf(s,  "%.1f K", 1.0 / 1024.0 * v);
+    sprintf(s,  "%.1f K", 1.0 / 1000.0 * v);
   else
     sprintf(s,  "%llu", v);
 
   return s;
 }
 
-u64 toU64(char* s, int isSize)
+u64 toU64(char* s)
 {
   u64 num = 0, denom = 1;
-  u64 f = isSize ? 1024 : 1000;
-  
+
   while((*s >= '0') && (*s <='9')) {
     num = 10*num + (*s - '0');
     s++;
@@ -225,9 +224,9 @@ u64 toU64(char* s, int isSize)
     }
   }
 
-  if ((*s == 'k') || (*s == 'K'))      num = num * f;
-  else if ((*s == 'm') || (*s == 'M')) num = num * f * f;
-  else if ((*s == 'g') || (*s == 'G')) num = num * f * f * f;
+  if ((*s == 'k') || (*s == 'K'))      num = num * 1000;
+  else if ((*s == 'm') || (*s == 'M')) num = num * 1000000;
+  else if ((*s == 'g') || (*s == 'G')) num = num * 1000000ull;
   num = num / denom;
 
   return num;
@@ -304,7 +303,7 @@ void parseOptions(char argc, char* argv[])
       if (argv[arg][1] == 'w') { doWrite = 1; continue; }
       if (argv[arg][1] == 'c') {
 	if (arg+1<argc) {
-	  clockFreq = toU64(argv[arg+1], 0);
+	  clockFreq = toU64(argv[arg+1]);
 	  arg++;
 	}
 	continue;
@@ -318,12 +317,12 @@ void parseOptions(char argc, char* argv[])
       }
       if (argv[arg][1] == 's') {
         if (arg+1<argc) {
-	  iters_perstat = (int) toU64(argv[arg+1], 0);
+	  iters_perstat = (int) toU64(argv[arg+1]);
           arg++;
         }
         continue;
       }
-      iter = (int) toU64(argv[arg]+1, 0);
+      iter = (int) toU64(argv[arg]+1);
       if (iter == 0) {
 	fprintf(stderr, "ERROR: expected iteration count, got '%s'\n",
 		argv[arg]+1);
@@ -331,7 +330,7 @@ void parseOptions(char argc, char* argv[])
       }
       continue;
     }
-    dist = toU64(argv[arg], 1);
+    dist = toU64(argv[arg]);
     if (dist == 0) {
       fprintf(stderr, "ERROR: expected distance, got '%s'\n", argv[arg]);
       usage(argv[0]);
@@ -341,10 +340,10 @@ void parseOptions(char argc, char* argv[])
 
   // set to defaults if values were not provided
   
-  if (distsUsed == 0) addDist(16*1024*1024);
+  if (distsUsed == 0) addDist(16000000);
   if (iter == 0) iter = 1000;
   if (clockFreq == 0)
-    clockFreq = toU64(clockFreqDef, 0);
+    clockFreq = toU64(clockFreqDef);
 
   if (tcount == 0) {
     // thread count is the default as given by OpenMP runtime
@@ -408,9 +407,9 @@ int main(int argc, char* argv[])
     prettyVal(tacBuf, aCount * tcount * iter);
     prettyVal(tasBuf, aCount * tcount * iter * 64.0);
 
-    fprintf(stderr, "  buffer size per thread %sB (total %sB), address diff %llu\n",
+    fprintf(stderr, "  buffer size per thread %siB (total %siB), address diff %llu\n",
 	    sBuf, tsBuf, BLOCKLEN * blockDiff);
-    fprintf(stderr, "  accesses per iteration and thread: %s (total %s accs = %sB)\n",
+    fprintf(stderr, "  accesses per iteration and thread: %s (total %s accs = %siB)\n",
 	    acBuf, tacBuf, tasBuf);
   }
 
@@ -499,12 +498,12 @@ int main(int argc, char* argv[])
 
   avg = tt * tcount / aCount * 1000000000.0;
   cTime = 1000000000.0 / clockFreq;
-  gData = aCount * 64.0 / 1024.0 / 1024.0 / 1024.0;
+  gData = aCount * 64.0 / 1000000000.0;
   gFlops = aCount * flopsPA / 1000000000.0;
 
-  fprintf(stderr, "Summary: throughput %7.3f GB in %.3f s (per core: %.3f GB)\n",
+  fprintf(stderr, "Summary: throughput %7.3f GiB in %.3f s (per core: %.3f GiB)\n",
 	  gData, tt, gData / tcount);
-  fprintf(stderr, "         bandwidth  %7.3f GB/s (per core: %.3f GB/s)\n",
+  fprintf(stderr, "         bandwidth  %7.3f GiB/s (per core: %.3f GiB/s)\n",
 	  gData / tt, gData / tt / tcount);
   fprintf(stderr, "         GFlop/s    %7.3f GF/s (per core: %.3f GF/s)\n",
 	  gFlops / tt, gFlops / tt / tcount);
