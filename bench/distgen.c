@@ -25,9 +25,9 @@
 #include <omp.h>
 #endif
 
-#define MAXDISTCOUNT 10
+#define MAXDISTCOUNT 32
 #define BLOCKLEN 64
-#define MAXTHREADS 64
+#define MAXTHREADS 256
 
 typedef unsigned long long u64;
 
