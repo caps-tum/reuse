@@ -193,13 +193,13 @@ char* prettyVal(char *s, u64 v)
   static char str[50];
 
   if (!s) s = str;
-  if (v > 1000000000000ull)
+  if (v >= 1000000000000ull)
     sprintf(s,  "%.1f T", 1.0 / 1000000.0 / 1000000.0 * v);
-  else if (v > 1000000000ull)
+  else if (v >= 1000000000ull)
     sprintf(s,  "%.1f G", 1.0 / 1000000000.0 * v);
-  else if (v > 1000000ull)
+  else if (v >= 1000000ull)
     sprintf(s,  "%.1f M", 1.0 / 1000000.0 * v);
-  else if (v > 1000ull)
+  else if (v >= 1000ull)
     sprintf(s,  "%.1f K", 1.0 / 1000.0 * v);
   else
     sprintf(s,  "%llu", v);
@@ -226,7 +226,7 @@ u64 toU64(char* s)
 
   if ((*s == 'k') || (*s == 'K'))      num = num * 1000;
   else if ((*s == 'm') || (*s == 'M')) num = num * 1000000;
-  else if ((*s == 'g') || (*s == 'G')) num = num * 1000000ull;
+  else if ((*s == 'g') || (*s == 'G')) num = num * 1000000000ull;
   num = num / denom;
 
   return num;
@@ -450,8 +450,12 @@ int main(int argc, char* argv[])
   // Run benchmark
   //--------------------------
 
-  fprintf(stderr, "Running %d iterations, %d thread(s) ...\n",
+  fprintf(stderr, "Running %d iterations, %d thread(s) [",
 	  iter, tcount);
+  for(d=0; d<distsUsed; d++)
+    fprintf(stderr, "%s%s", (d==0) ? "":", ", prettyVal(0, distSize[d]));
+  fprintf(stderr, "] ...\n");
+
   if (verbose)
     fprintf(stderr, "  printing statistics every %d iterations\n",
 	    iters_perstat);
