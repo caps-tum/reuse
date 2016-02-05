@@ -8,7 +8,7 @@
  * given layers (caches) of the memory hierarchy.
  * The idea is to approximate the access pattern of real codes.
  *
- * Copyright 2015 by LRR-TUM
+ * Copyright 2015-2016 by LRR-TUM
  * Josef Weidendorfer <weidendo@in.tum.de>
  *
  * Licensed under GNU General Public License 2.0 or later.
@@ -25,6 +25,8 @@
 #include <omp.h>
 #endif
 
+
+#define VERSION "0.1"
 #define MAXDISTCOUNT 32
 #define BLOCKLEN 64
 #define MAXTHREADS 256
@@ -384,9 +386,10 @@ int main(int argc, char* argv[])
 
   parseOptions(argc, argv);
 
-  if (verbose)
-    fprintf(stderr, "Multi-threaded Distance Generator (C) 2015 LRR-TUM\n");
-
+  if (verbose) {
+    fprintf(stderr, "Multi-threaded Distance Generator ");
+    fprintf(stderr, "(C) 2015 LRR-TUM v%s\n", VERSION);
+  }
   blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
   blockDiff = pseudoRandom ? (blocks * 7/17) : 1;
   blocks = adjustSize(blocks, blockDiff);
