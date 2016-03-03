@@ -209,9 +209,10 @@ char* prettyVal(char *s, u64 v)
   return s;
 }
 
-u64 toU64(char* s)
+u64 toU64(char* s, char def)
 {
   u64 num = 0, denom = 1;
+  char fac = def;
 
   while((*s >= '0') && (*s <='9')) {
     num = 10*num + (*s - '0');
@@ -226,9 +227,10 @@ u64 toU64(char* s)
     }
   }
 
-  if ((*s == 'k') || (*s == 'K'))      num = num * 1000;
-  else if ((*s == 'm') || (*s == 'M')) num = num * 1000000;
-  else if ((*s == 'g') || (*s == 'G')) num = num * 1000000000ull;
+  if (*s) fac = *s;
+  if ((fac == 'k') || (fac == 'K'))      num = num * 1000;
+  else if ((fac == 'm') || (fac == 'M')) num = num * 1000000;
+  else if ((fac == 'g') || (fac == 'G')) num = num * 1000000000ull;
   num = num / denom;
 
   return num;
@@ -275,7 +277,8 @@ void usage(char* argv0)
 	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
 	  "\nParameters:\n"
 	  "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
-	  "  <dist1>, ... different reuse distances (def: 1 dist with 16MB)\n"
+	  "  <dist1>, ... reuse distances in bytes (without unit assume MiB)\n"
+	  "               (default: 1 distance with 16 MiB)\n"
 	  "\nOptions:\n"
 	  "  -h           show this help\n"
 	  "  -p           use pseudo-random access pattern\n"
@@ -304,27 +307,33 @@ void parseOptions(char argc, char* argv[])
       if (argv[arg][1] == 'd') { depChain = 1; continue; }
       if (argv[arg][1] == 'w') { doWrite = 1; continue; }
       if (argv[arg][1] == 'c') {
-	if (arg+1<argc) {
-	  clockFreq = toU64(argv[arg+1]);
+	if (argv[arg][2])
+	  clockFreq = toU64(argv[arg+1],'g');
+	else if (arg+1<argc) {
+	  clockFreq = toU64(argv[arg+1],'g');
 	  arg++;
 	}
 	continue;
       }
       if (argv[arg][1] == 't') {
-        if (arg+1<argc) {
+	if (argv[arg][2])
+	  tcount = atoi(argv[arg]+2);
+	else if (arg+1<argc) {
           tcount = atoi(argv[arg+1]);
           arg++;
         }
         continue;
       }
       if (argv[arg][1] == 's') {
-        if (arg+1<argc) {
-	  iters_perstat = (int) toU64(argv[arg+1]);
+	if (argv[arg][2])
+	  iters_perstat = (int) toU64(argv[arg]+2, 0);
+	else if (arg+1<argc) {
+	  iters_perstat = (int) toU64(argv[arg+1], 0);
           arg++;
         }
         continue;
       }
-      iter = (int) toU64(argv[arg]+1);
+      iter = (int) toU64(argv[arg]+1, 0);
       if (iter == 0) {
 	fprintf(stderr, "ERROR: expected iteration count, got '%s'\n",
 		argv[arg]+1);
@@ -332,7 +341,7 @@ void parseOptions(char argc, char* argv[])
       }
       continue;
     }
-    dist = toU64(argv[arg]);
+    dist = toU64(argv[arg], 'm');
     if (dist == 0) {
       fprintf(stderr, "ERROR: expected distance, got '%s'\n", argv[arg]);
       usage(argv[0]);
@@ -345,7 +354,7 @@ void parseOptions(char argc, char* argv[])
   if (distsUsed == 0) addDist(16000000);
   if (iter == 0) iter = 1000;
   if (clockFreq == 0)
-    clockFreq = toU64(clockFreqDef);
+    clockFreq = toU64(clockFreqDef,'g');
 
   if (tcount == 0) {
     // thread count is the default as given by OpenMP runtime
@@ -388,7 +397,7 @@ int main(int argc, char* argv[])
 
   if (verbose) {
     fprintf(stderr, "Multi-threaded Distance Generator ");
-    fprintf(stderr, "(C) 2015 LRR-TUM v%s\n", VERSION);
+    fprintf(stderr, "(C) 2015-2016 LRR-TUM v%s\n", VERSION);
   }
   blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
   blockDiff = pseudoRandom ? (blocks * 7/17) : 1;
@@ -457,7 +466,8 @@ int main(int argc, char* argv[])
 	  iter, tcount);
   for(d=0; d<distsUsed; d++)
     fprintf(stderr, "%s%s", (d==0) ? "":", ", prettyVal(0, distSize[d]));
-  fprintf(stderr, "] ...\n");
+  fprintf(stderr, "] (total %siB) ...\n",
+		  prettyVal(0, BLOCKLEN * blocks * tcount));
 
   if (verbose)
     fprintf(stderr, "  printing statistics every %d iterations\n",
