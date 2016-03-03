@@ -281,7 +281,7 @@ void usage(char* argv0)
 	  "               (default: 1 distance with 16 MiB)\n"
 	  "\nOptions:\n"
 	  "  -h           show this help\n"
-	  "  -p           use pseudo-random access pattern\n"
+	  "  -r           use (pseudo-)random access pattern\n"
 	  "  -d           traversal by dependency chain\n"
 	  "  -w           write after read on each access\n"
 	  "  -c <freq>    clock frequency in Hz to show cycles per access (def: %s)\n"
@@ -296,51 +296,55 @@ void usage(char* argv0)
 // this sets global options
 void parseOptions(char argc, char* argv[])
 {
-  int arg;
+  int arg, pos;
   u64 dist;
 
   for(arg=1; arg<argc; arg++) {
     if (argv[arg][0] == '-') {
-      if (argv[arg][1] == 'h') usage(argv[0]);
-      if (argv[arg][1] == 'v') { verbose++; continue; }
-      if (argv[arg][1] == 'p') { pseudoRandom = 1; continue; }
-      if (argv[arg][1] == 'd') { depChain = 1; continue; }
-      if (argv[arg][1] == 'w') { doWrite = 1; continue; }
-      if (argv[arg][1] == 'c') {
-	if (argv[arg][2])
-	  clockFreq = toU64(argv[arg+1],'g');
-	else if (arg+1<argc) {
-	  clockFreq = toU64(argv[arg+1],'g');
-	  arg++;
+      for(pos=1; argv[arg][pos]; pos++) {
+        if (argv[arg][pos] == 'h') usage(argv[0]);
+        if (argv[arg][pos] == 'v') { verbose++; continue; }
+        if (argv[arg][pos] == 'r') { pseudoRandom = 1; continue; }
+        if (argv[arg][pos] == 'd') { depChain = 1; continue; }
+        if (argv[arg][pos] == 'w') { doWrite = 1; continue; }
+
+        if (argv[arg][pos] == 'c') {
+	  if (argv[arg][pos+1])
+	    clockFreq = toU64(argv[arg]+pos+1,'g');
+	  else if (arg+1<argc) {
+	    clockFreq = toU64(argv[arg+1],'g');
+	    arg++;
+	  }
+        }
+        else if (argv[arg][pos] == 't') {
+	  if (argv[arg][pos+1])
+	    tcount = atoi(argv[arg]+pos+1);
+	  else if (arg+1<argc) {
+            tcount = atoi(argv[arg+1]);
+            arg++;
+          }
+        }
+        else if (argv[arg][pos] == 's') {
+	  if (argv[arg][pos+1])
+	    iters_perstat = (int) toU64(argv[arg]+pos+1, 0);
+	  else if (arg+1<argc) {
+	    iters_perstat = (int) toU64(argv[arg+1], 0);
+            arg++;
+          }
+        }
+	else {
+          iter = (int) toU64(argv[arg]+pos, 0);
+          if (iter == 0) {
+	    fprintf(stderr, "ERROR: expected iteration count, got '%s'\n",
+		    argv[arg]+pos);
+	    usage(argv[0]);
+          }
 	}
-	continue;
-      }
-      if (argv[arg][1] == 't') {
-	if (argv[arg][2])
-	  tcount = atoi(argv[arg]+2);
-	else if (arg+1<argc) {
-          tcount = atoi(argv[arg+1]);
-          arg++;
-        }
-        continue;
-      }
-      if (argv[arg][1] == 's') {
-	if (argv[arg][2])
-	  iters_perstat = (int) toU64(argv[arg]+2, 0);
-	else if (arg+1<argc) {
-	  iters_perstat = (int) toU64(argv[arg+1], 0);
-          arg++;
-        }
-        continue;
-      }
-      iter = (int) toU64(argv[arg]+1, 0);
-      if (iter == 0) {
-	fprintf(stderr, "ERROR: expected iteration count, got '%s'\n",
-		argv[arg]+1);
-	usage(argv[0]);
+	break; // next arg
       }
       continue;
     }
+
     dist = toU64(argv[arg], 'm');
     if (dist == 0) {
       fprintf(stderr, "ERROR: expected distance, got '%s'\n", argv[arg]);
@@ -462,8 +466,12 @@ int main(int argc, char* argv[])
   // Run benchmark
   //--------------------------
 
-  fprintf(stderr, "Running %d iterations, %d thread(s) [",
-	  iter, tcount);
+  fprintf(stderr, "Do %d %s%s%siters, %d thr(s) [",
+	  iter,
+	  pseudoRandom ? "random " : "",
+	  depChain ? "chained " : "",
+	  doWrite ? "writing " : "",
+	  tcount);
   for(d=0; d<distsUsed; d++)
     fprintf(stderr, "%s%s", (d==0) ? "":", ", prettyVal(0, distSize[d]));
   fprintf(stderr, "] (total %siB) ...\n",
