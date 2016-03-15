@@ -27,7 +27,7 @@
 #endif
 
 
-#define VERSION "0.1"
+#define VERSION "0.2"
 #define MAXDISTCOUNT 32
 #define BLOCKLEN 64
 #define MAXTHREADS 256
@@ -290,29 +290,37 @@ int get_tcount()
   return tc;
 }
 
+void printTitle()
+{
+    fprintf(stderr, "Multi-threaded Distance Generator ");
+    fprintf(stderr, "(C) 2015-2016 LRR-TUM v%s\n", VERSION);
+}
+
 void usage(char* argv0)
 {
-  fprintf(stderr,
-	  "Benchmark with threads accessing their own nested arrays at cache-line granularity\n\n"
-	  "Usage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
-	  "\nParameters:\n"
-	  "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
-	  "  <dist1>, ... reuse distances in bytes (without unit assume MiB)\n"
-	  "               (default: 1 distance with 16 MiB)\n"
-	  "\nOptions:\n"
-	  "  -h           show this help\n"
-	  "  -r           use (pseudo-)random access pattern\n"
-	  "  -d           traversal by dependency chain\n"
-	  "  -w           write after read on each access\n"
-	  "  -b           stop execution after receiving SIGUSR1\n"
-	  "  -c <freq>    clock frequency in Hz to show cycles per access (def: %s)\n"
-	  "  -t <count>   set number of threads to use (def: %d)\n"
-	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
-	  "  -v           be verbose\n", argv0, clockFreqDef, get_tcount());
-  fprintf(stderr,
-	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor.\n"
-          "Send SIGUSR1 ('killall distgen -USR1') for statistics output.\n");
-  exit(1);
+    printTitle();
+    fprintf(stderr,
+            "Access memory at specified distances with cacheline granularity.\n"
+            "Multiple threads are supported, using their own nested arrays.\n"
+            "\nUsage: %s [Options] [-<iter>] [<dist1> [<dist2> ... ]]\n"
+            "\nParameters:\n"
+            "  <iter>       number of times (iterations) accessing arrays (def: 1000)\n"
+            "  <dist1>, ... reuse distances in bytes (without unit assume MB = 10^6 B)\n"
+            "               (default: 1 distance with 16 MB)\n"
+            "\nOptions:\n"
+            "  -h           show this help\n"
+            "  -r           use (pseudo-)random access pattern\n"
+            "  -d           traversal by dependency chain\n"
+            "  -w           write after read on each access\n"
+            "  -b           stop execution after receiving SIGUSR1\n"
+            "  -c <freq>    clock frequency in Hz to show cycles per access (def: %s)\n"
+            "  -t <count>   set number of threads to use (def: %d)\n"
+            "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
+            "  -v           be verbose\n", argv0, clockFreqDef, get_tcount());
+    fprintf(stderr,
+            "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor.\n"
+          "Send SIGUSR1 ('killall distgen -USR1') for statistics output during run.\n");
+    exit(1);
 }
 
 // this sets global options
@@ -427,10 +435,9 @@ int main(int argc, char* argv[])
   parseOptions(argc, argv);
   signal(SIGUSR1, siginfo_handler);
 
-  if (verbose) {
-    fprintf(stderr, "Multi-threaded Distance Generator ");
-    fprintf(stderr, "(C) 2015-2016 LRR-TUM v%s\n", VERSION);
-  }
+  if (verbose)
+      printTitle();
+
   blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
   blockDiff = pseudoRandom ? (blocks * 7/17) : 1;
   blocks = adjustSize(blocks, blockDiff);
@@ -451,9 +458,9 @@ int main(int argc, char* argv[])
     prettyVal(tacBuf, aCount * tcount * iter);
     prettyVal(tasBuf, aCount * tcount * iter * 64.0);
 
-    fprintf(stderr, "  buffer size per thread %siB (total %siB), address diff %llu\n",
+    fprintf(stderr, "  buffer size per thread %sB (total %sB), address diff %llu\n",
 	    sBuf, tsBuf, BLOCKLEN * blockDiff);
-    fprintf(stderr, "  accesses per iteration and thread: %s (total %s accs = %siB)\n",
+    fprintf(stderr, "  accesses per iteration and thread: %s (total %s accs = %sB)\n",
 	    acBuf, tacBuf, tasBuf);
   }
 
@@ -502,7 +509,7 @@ int main(int argc, char* argv[])
 	  tcount);
   for(d=0; d<distsUsed; d++)
     fprintf(stderr, "%s%s", (d==0) ? "":", ", prettyVal(0, distSize[d]));
-  fprintf(stderr, "] (total %siB) ...\n",
+  fprintf(stderr, "] (total %sB) ...\n",
 		  prettyVal(0, BLOCKLEN * blocks * tcount));
 
   if (verbose)
@@ -557,9 +564,9 @@ int main(int argc, char* argv[])
   gData = aCount * 64.0 / 1000000000.0;
   gFlops = aCount * flopsPA / 1000000000.0;
 
-  fprintf(stderr, "Summary: throughput %7.3f GiB in %.3f s (per core: %.3f GiB)\n",
+  fprintf(stderr, "Summary: throughput %7.3f GB in %.3f s (per core: %.3f GB)\n",
 	  gData, tt, gData / tcount);
-  fprintf(stderr, "         bandwidth  %7.3f GiB/s (per core: %.3f GiB/s)\n",
+  fprintf(stderr, "         bandwidth  %7.3f GB/s (per core: %.3f GB/s)\n",
 	  gData / tt, gData / tt / tcount);
   fprintf(stderr, "         GFlop/s    %7.3f GF/s (per core: %.3f GF/s)\n",
 	  gFlops / tt, gFlops / tt / tcount);
