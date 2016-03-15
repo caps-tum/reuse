@@ -20,6 +20,7 @@
 #include <assert.h>
 #include <malloc.h>
 #include <sys/time.h>
+#include <signal.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -46,6 +47,7 @@ int distIter[MAXDISTCOUNT];
 int distsUsed = 0;
 int verbose = 0;
 int iters_perstat = 0;
+int stopOnSigUSR1 = 0;
 int tcount = 0;       // number of threads to use
 u64 clockFreq = 0;    // assumed frequency for printing cycles
 int pseudoRandom = 0;
@@ -55,6 +57,9 @@ int iter = 0;
 
 // defaults
 char* clockFreqDef = "2.4G";
+
+// SIGUSR1 handling
+volatile int sigCounter = 0;
 
 double wtime()
 {
@@ -114,10 +119,12 @@ int adjustSize(u64 size, u64 diff)
   return size;
 }
 
-void runBench(struct entry* buffer,
-	      int iter, u64 blocks, u64 blockDiff,
-	      int depChain, int doWrite,
-	      double* sum, u64* aCount)
+// called in parallel by multiple threads
+// return number of iterations done. May be smaller than <iter> on SIGUSR1
+int runBench(struct entry* buffer,
+             int iter, u64 blocks, u64 blockDiff,
+             int depChain, int doWrite,
+             double* sum, u64* aCount)
 {
   int i, d, k;
   u64 j, idx, max;
@@ -125,6 +132,7 @@ void runBench(struct entry* buffer,
   u64 idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
   u64 idxMax = blocks * BLOCKLEN/sizeof(struct entry);
   int benchType = depChain + 2*doWrite;
+  int oldSigCounter = sigCounter; // detect SIGUSR1 in each thread
 
   lsum = *sum;
   for(i=0; i<iter; i++) {
@@ -185,9 +193,21 @@ void runBench(struct entry* buffer,
 	}
       }
     }
+#pragma omp flush(sigCounter)
+    if (sigCounter > oldSigCounter) {
+        if (verbose)
+#ifdef _OPENMP
+            fprintf(stderr, "T%d: SIGUSR1 received (after iteration %d)\n",
+                  omp_get_thread_num(), i);
+#else
+            fprintf(stderr, "SIGUSR1 received (after iteration %d)\n", i);
+#endif
+        break;
+    }
   }
 
   *sum = lsum;
+  return i;
 }
 
 char* prettyVal(char *s, u64 v)
@@ -244,7 +264,7 @@ void printStats(int ii, double tDiff, u64 rDiff, u64 wDiff)
 
   fprintf(stderr, " at%5d: ", ii);
   fprintf(stderr,
-	  " %5.3fs for %4.1f GB => %5.3f GB/s"
+	  " %5.3fs for %5.1f GB => %5.3f GB/s"
 	  " (per core: %6.3f GB/s)\n",
 	  tDiff, aDiff * 64.0 / 1000000000.0,
 	  aDiff * 64.0 / tDiff / 1000000000.0,
@@ -284,12 +304,14 @@ void usage(char* argv0)
 	  "  -r           use (pseudo-)random access pattern\n"
 	  "  -d           traversal by dependency chain\n"
 	  "  -w           write after read on each access\n"
+	  "  -b           stop execution after receiving SIGUSR1\n"
 	  "  -c <freq>    clock frequency in Hz to show cycles per access (def: %s)\n"
 	  "  -t <count>   set number of threads to use (def: %d)\n"
 	  "  -s <iter>    print perf.stats every few iterations (def: 0 = none)\n"
 	  "  -v           be verbose\n", argv0, clockFreqDef, get_tcount());
   fprintf(stderr,
-	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor\n");
+	  "\nNumbers can end in k/m/g for Kilo/Mega/Giga factor.\n"
+          "Send SIGUSR1 ('killall distgen -USR1') for statistics output.\n");
   exit(1);
 }
 
@@ -307,6 +329,7 @@ void parseOptions(char argc, char* argv[])
         if (argv[arg][pos] == 'r') { pseudoRandom = 1; continue; }
         if (argv[arg][pos] == 'd') { depChain = 1; continue; }
         if (argv[arg][pos] == 'w') { doWrite = 1; continue; }
+        if (argv[arg][pos] == 'b') { stopOnSigUSR1 = 1; continue; }
 
         if (argv[arg][pos] == 'c') {
 	  if (argv[arg][pos+1])
@@ -381,14 +404,18 @@ void parseOptions(char argc, char* argv[])
     // no intermediate output
     iters_perstat = iter;
   }
+}
 
-
+static void siginfo_handler (int sig)
+{
+    signal(sig, siginfo_handler);
+    sigCounter++;
 }
 
 int main(int argc, char* argv[])
 {
   int i, j, k, d;
-  int ii;
+  int ii, iiTodo, iiDone;
   u64 aCount = 0, aCount1;
   u64 blocks, blockDiff;
   double sum = 0.0;
@@ -398,6 +425,7 @@ int main(int argc, char* argv[])
   double avg, cTime, gData, gFlops, flopsPA;
 
   parseOptions(argc, argv);
+  signal(SIGUSR1, siginfo_handler);
 
   if (verbose) {
     fprintf(stderr, "Multi-threaded Distance Generator ");
@@ -488,22 +516,25 @@ int main(int argc, char* argv[])
   // loop over chunks of iterations after which statistics are printed
   while(1) {
     aCount1 = aCount;
+    iiTodo = iter - ii;
+    if (iiTodo > iters_perstat) iiTodo = iters_perstat;
 
-#pragma omp parallel for reduction(+:sum) reduction(+:aCount)
+#pragma omp parallel for reduction(+:sum) reduction(+:aCount) lastprivate(iiDone)
     for(t=0; t<tcount; t++) {
       double tsum = 0.0;
       u64 taCount = 0;
 
-      runBench(buffer[t], iters_perstat, blocks, blockDiff,
-	       depChain, doWrite, &tsum, &taCount);
+      iiDone = runBench(buffer[t], iiTodo, blocks, blockDiff,
+                        depChain, doWrite, &tsum, &taCount);
 
       sum += tsum;
       aCount += taCount;
     }
 
     t2 = wtime();
-    ii += iters_perstat;
+    ii += iiDone;
     if (ii >= iter) break;
+    if (stopOnSigUSR1 && (iiDone < iiTodo)) break;
 
     printStats(ii, t2-t1, aCount - aCount1, doWrite ? (aCount - aCount1) : 0);
 
