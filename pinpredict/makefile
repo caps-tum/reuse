@@ -11,7 +11,7 @@ include $(TOOLS_ROOT)/Config/makefile.default.rules
 #TOOL_CXXFLAGS += -fabi-version=2
 
 installwrapper:
-	echo "time \$$PIN_ROOT/pin -t $$PWD/obj-intel64/pinpredict.so \$$*" > pinpredict
+	echo "time \$$PIN_ROOT/pin -xyzzy -ifeellucky -t $$PWD/obj-intel64/pinpredict.so \$$*" > pinpredict
 	cp pinpredict ~/bin/ && chmod 755 ~/bin/pinpredict
 
 
