@@ -416,7 +416,8 @@ VOID Trace(TRACE trace, VOID *v)
 
 struct namesorter {
     namesorter(const map<string,u64>& m):_m(m) {}
-    bool operator()(string i, string j) { return _m.at(i)<_m.at(j);}
+    bool operator()(string i, string j) {
+         return *_m.find(i) < *_m.find(j);}
     const map<string,u64>& _m;
 };
 
