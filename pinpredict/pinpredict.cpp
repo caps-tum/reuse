@@ -435,8 +435,9 @@ VOID Fini(int code, VOID * v)
 
     fprintf(stderr,
             "==\n"
-            "PinTool Results\n"
-            "  predictors: %d, exits: %d\n",
+            "PinPredict Stride Access Prediction Results\n"
+            "  predictors used (per memory access instruction): %d\n"
+            "  exits from BBs instrumented: %d\n",
             nextAPred, nextExit);
 
     for(int tid=0; tid<MAX_THREADS; tid++) {
@@ -505,7 +506,7 @@ VOID Fini(int code, VOID * v)
 	    u64 total = routineTotals[*rit];
 	    u64 misses = routineMisses[*rit];
 	    u64 hits = total - misses;
-	    fprintf(stderr, "  %30s : %8llu, %8llu misses (%6.2f %%), %8llu hits (%6.2f %%)\n",
+	    fprintf(stderr, "  %30s :%10llu mem-accs,%10llu wrong =%6.2f %%,%10llu correct =%6.2f %%\n",
 		    (*rit).c_str(), total,
 		    misses, 100.0 * misses/total,
 		    hits, 100.0 * hits/total);
@@ -521,7 +522,7 @@ VOID Fini(int code, VOID * v)
                     i, d->predCounters[i]);
         }
     }
-    fprintf(stderr, "  Total predicted: %llu / %llu = %5.2f %%\n",
+    fprintf(stderr, "  Total predicted: %llu / %llu =%6.2f %%\n",
             totalHitCount, totalCount,
             100.0 * (double)totalHitCount / (double)totalCount);
 }

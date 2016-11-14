@@ -460,6 +460,8 @@ int main(int argc, char* argv[])
 
     fprintf(stderr, "  buffer size per thread %sB (total %sB), address diff %llu\n",
 	    sBuf, tsBuf, BLOCKLEN * blockDiff);
+    fprintf(stderr, "  buffer has %llu blocks of %d bytes per thread, block increment %llu\n",
+            blocks, BLOCKLEN, blockDiff);
     fprintf(stderr, "  accesses per iteration and thread: %s (total %s accs = %sB)\n",
 	    acBuf, tacBuf, tasBuf);
   }
