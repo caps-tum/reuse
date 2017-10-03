@@ -18,7 +18,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <malloc.h>
 #include <sys/time.h>
 #include <signal.h>
 
@@ -481,7 +480,7 @@ int main(int argc, char* argv[])
     u64 idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
 
     // allocate and initialize used memory
-    buffer[t] = (struct entry*) memalign(64, blocks * BLOCKLEN);
+    posix_memalign((void**)&(buffer[t]), 64, blocks * BLOCKLEN);
     buf = buffer[t];
     for(idx=0; idx < idxMax; idx++) {
       buf[idx].v = (double) idx;
