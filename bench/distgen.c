@@ -45,6 +45,7 @@ int distIter[MAXDISTCOUNT];
 // options (to be reset to default if 0)
 int distsUsed = 0;
 int verbose = 0;
+int quiet = 0;
 int iters_perstat = 0;
 int stopOnSigUSR1 = 0;
 int tcount = 0;       // number of threads to use
@@ -125,7 +126,7 @@ int runBench(struct entry* buffer,
              int depChain, int doWrite,
              double* sum, u64* aCount)
 {
-  int i, d, k;
+  int i, d, k, l;
   u64 j, idx, max;
   double lsum, v;
   u64 idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
@@ -146,7 +147,22 @@ int runBench(struct entry* buffer,
 	switch(benchType) {
 	case 0: // no dep chain, no write
 	  idx = 0;
-	  for(j=0; j<max; j++) {
+	  for(j=0; j < max; j++) {
+#if 1
+      while((j + 16 < max) && (idx + 16l * idxIncr < idxMax)) {
+        for(l=0; l<16; l++)
+          lsum += buffer[idx + l * idxIncr].v;
+        idx += 16l * idxIncr;
+        j += 16l;
+      }
+#if 1
+      while((j < max) && (idx + idxIncr < idxMax)) {
+        lsum += buffer[idx].v;
+        idx += idxIncr;
+        j++;
+      }
+#endif
+#endif
 	    lsum += buffer[idx].v;
 	    idx += idxIncr;
 	    if (idx >= idxMax) idx -= idxMax;
@@ -308,6 +324,7 @@ void usage(char* argv0)
             "               (default: 1 distance with 16 MB)\n"
             "\nOptions:\n"
             "  -h           show this help\n"
+            "  -q           only 1 line output with size, bandwidth, latency"
             "  -r           use (pseudo-)random access pattern\n"
             "  -d           traversal by dependency chain\n"
             "  -w           write after read on each access\n"
@@ -332,6 +349,7 @@ void parseOptions(char argc, char* argv[])
     if (argv[arg][0] == '-') {
       for(pos=1; argv[arg][pos]; pos++) {
         if (argv[arg][pos] == 'h') usage(argv[0]);
+        if (argv[arg][pos] == 'q') { quiet = 1; continue; }
         if (argv[arg][pos] == 'v') { verbose++; continue; }
         if (argv[arg][pos] == 'r') { pseudoRandom = 1; continue; }
         if (argv[arg][pos] == 'd') { depChain = 1; continue; }
@@ -502,6 +520,7 @@ int main(int argc, char* argv[])
   // Run benchmark
   //--------------------------
 
+  if (!quiet) {
   fprintf(stderr, "Do %d %s%s%siters, %d thr(s) [",
 	  iter,
 	  pseudoRandom ? "random " : "",
@@ -512,6 +531,7 @@ int main(int argc, char* argv[])
     fprintf(stderr, "%s%s", (d==0) ? "":", ", prettyVal(0, distSize[d]));
   fprintf(stderr, "] (total %sB) ...\n",
 		  prettyVal(0, BLOCKLEN * blocks * tcount));
+  }
 
   if (verbose)
     fprintf(stderr, "  printing statistics every %d iterations\n",
@@ -565,6 +585,10 @@ int main(int argc, char* argv[])
   gData = aCount * 64.0 / 1000000000.0;
   gFlops = aCount * flopsPA / 1000000000.0;
 
+if (quiet)
+  printf("%llu %7.3f %7.3f\n",
+   BLOCKLEN * blocks * tcount, gData / tt, avg);
+else {
   fprintf(stderr, "Summary: throughput %7.3f GB in %.3f s (per core: %.3f GB)\n",
 	  gData, tt, gData / tcount);
   fprintf(stderr, "         bandwidth  %7.3f GB/s (per core: %.3f GB/s)\n",
@@ -573,7 +597,7 @@ int main(int argc, char* argv[])
 	  gFlops / tt, gFlops / tt / tcount);
   fprintf(stderr, "         per acc.   %7.3f ns   (%.1f cycles @ %.2f GHz)\n",
 	  avg, avg/cTime, 1.0 / 1000000000.0 * clockFreq);
-  
+}
   if (verbose)
     fprintf(stderr, "         accesses   %llu, sum: %g\n", aCount, sum);
 
