@@ -455,8 +455,9 @@ int main(int argc, char* argv[])
   if (verbose)
       printTitle();
 
-  blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;  
-  blockDiff = pseudoRandom ? (blocks * 7/17) : 1;
+  blocks = (distSize[0] + BLOCKLEN - 1) / BLOCKLEN;
+  // use the golden ratio for pseudo random, to avoid aliasing
+  blockDiff = pseudoRandom ? (blocks * 987/1597) : 1;
   blocks = adjustSize(blocks, blockDiff);
   initBufs();
 
