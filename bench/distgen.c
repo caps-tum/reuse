@@ -324,7 +324,7 @@ void usage(char* argv0)
             "               (default: 1 distance with 16 MB)\n"
             "\nOptions:\n"
             "  -h           show this help\n"
-            "  -q           only 1 line output with size, bandwidth, latency"
+            "  -q           only 1 line output with size, bandwidth, latency\n"
             "  -r           use (pseudo-)random access pattern\n"
             "  -d           traversal by dependency chain\n"
             "  -w           write after read on each access\n"
