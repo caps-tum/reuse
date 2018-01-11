@@ -128,7 +128,7 @@ int runBench(struct entry* buffer,
 {
   int i, d, k, l;
   u64 j, idx, max;
-  double lsum, v;
+  double lsum, v = 0.0;
   u64 idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
   u64 idxMax = blocks * BLOCKLEN/sizeof(struct entry);
   int benchType = depChain + 2*doWrite;
