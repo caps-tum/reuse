@@ -493,7 +493,7 @@ int main(int argc, char* argv[])
 
 #pragma omp parallel for
   for(t=0; t<tcount; t++) {
-    struct entry *next, *buf;
+    struct entry *buf;
     u64 idx, blk, nextIdx;
     u64 idxMax = blocks * BLOCKLEN/sizeof(struct entry);
     u64 idxIncr = blockDiff * BLOCKLEN/sizeof(struct entry);
