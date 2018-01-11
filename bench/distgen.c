@@ -439,7 +439,7 @@ static void siginfo_handler (int sig)
 
 int main(int argc, char* argv[])
 {
-  int i, j, k, d;
+  int d;
   int ii, iiTodo, iiDone;
   u64 aCount = 0, aCount1;
   u64 blocks, blockDiff;
