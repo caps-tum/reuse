@@ -15,11 +15,11 @@
  * Some rights reserved. See LICENSE
  */
 
+#include <assert.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <sys/time.h>
-#include <signal.h>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -143,7 +143,7 @@ int runBench(struct entry* buffer,
 	//fprintf(stderr, "D %d, I %d\n", d, k);
 	*aCount += distBlocks[d];
 	max = distBlocks[d];
-	
+
 	switch(benchType) {
 	case 0: // no dep chain, no write
 	  idx = 0;
@@ -169,7 +169,7 @@ int runBench(struct entry* buffer,
 	    //fprintf(stderr, " Off %d\n", idx);
 	  }
 	  break;
-	  
+
 	case 1: // dep chain, no write
 	  {
 	    struct entry* p = buffer;
@@ -180,7 +180,7 @@ int runBench(struct entry* buffer,
 	    }
 	  }
 	  break;
-	  
+
 	case 2: // no dep chain, write
 	  idx = 0;
 	  for(j=0; j<max; j++) {
@@ -191,7 +191,7 @@ int runBench(struct entry* buffer,
 	    //fprintf(stderr, " Off %d\n", idx);
 	  }
 	  break;
-	  
+
 	case 3: // dep chain, write
 	  {
 	    struct entry* p = buffer;
@@ -402,7 +402,7 @@ void parseOptions(char argc, char* argv[])
   }
 
   // set to defaults if values were not provided
-  
+
   if (distsUsed == 0) addDist(16000000);
   if (iter == 0) iter = 1000;
   if (clockFreq == 0)
@@ -424,7 +424,7 @@ void parseOptions(char argc, char* argv[])
     }
 #endif
   }
-  
+
   if (iters_perstat == 0) {
     // no intermediate output
     iters_perstat = iter;
@@ -604,4 +604,3 @@ else {
 
   return 0;
 }
-
